@@ -1,697 +1,876 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Aprenda a jogar Poker Texas Hold'em do zero. Guia completo para iniciantes com ranking de mãos, regras, posições e estratégias básicas.">
-  <title>Poker Academy — Aprenda Poker do Zero</title>
-  <style>
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@700;900&display=swap');
-:root{--bg-dark:#0a0e14;--bg-card:#141a24;--bg-felt:#0d4a2e;--felt-light:#157a4a;--gold:#d4a843;--gold-light:#f0d078;--gold-dark:#a07820;--red-suit:#e63946;--white:#f1f1f1;--gray:#8892a4;--gray-dark:#2a3245;--radius:16px;--shadow:0 8px 32px rgba(0,0,0,0.4)}
-*{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{font-family:'Outfit',sans-serif;background:var(--bg-dark);color:var(--white);line-height:1.7;overflow-x:hidden}
-::-webkit-scrollbar{width:8px}::-webkit-scrollbar-track{background:var(--bg-dark)}::-webkit-scrollbar-thumb{background:var(--gold-dark);border-radius:4px}
-.navbar{position:fixed;top:0;left:0;width:100%;z-index:1000;padding:16px 40px;display:flex;align-items:center;justify-content:space-between;background:rgba(10,14,20,0.85);backdrop-filter:blur(16px);border-bottom:1px solid rgba(212,168,67,0.15);transition:padding .3s}
-.navbar.scrolled{padding:10px 40px}
-.navbar .logo{font-family:'Playfair Display',serif;font-size:1.6rem;font-weight:900;background:linear-gradient(135deg,var(--gold-light),var(--gold-dark));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
-.navbar .logo span{font-size:.8rem;font-weight:400;opacity:.7;margin-left:6px;-webkit-text-fill-color:var(--gray);color:var(--gray)}
-.nav-links{display:flex;gap:28px;list-style:none}
-.nav-links a{color:var(--gray);text-decoration:none;font-size:.9rem;font-weight:500;transition:color .3s;position:relative}
-.nav-links a::after{content:'';position:absolute;bottom:-4px;left:0;width:0;height:2px;background:var(--gold);transition:width .3s}
-.nav-links a:hover{color:var(--gold)}.nav-links a:hover::after{width:100%}
-.menu-toggle{display:none;background:none;border:none;color:var(--gold);font-size:1.5rem;cursor:pointer}
-.hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:120px 24px 80px;position:relative;overflow:hidden}
-.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 80%,rgba(13,74,46,0.4) 0%,transparent 60%),radial-gradient(ellipse at 20% 20%,rgba(212,168,67,0.08) 0%,transparent 50%)}
-.hero-content{position:relative;z-index:2;max-width:800px}
-.hero-badge{display:inline-block;padding:6px 20px;border-radius:50px;background:rgba(212,168,67,0.1);border:1px solid rgba(212,168,67,0.3);color:var(--gold);font-size:.85rem;font-weight:500;margin-bottom:24px;letter-spacing:1px;text-transform:uppercase}
-.hero h1{font-family:'Playfair Display',serif;font-size:clamp(2.5rem,6vw,4.5rem);font-weight:900;line-height:1.1;margin-bottom:20px}
-.hero h1 .gold{background:linear-gradient(135deg,var(--gold-light),var(--gold));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
-.hero p{font-size:1.15rem;color:var(--gray);max-width:560px;margin:0 auto 36px}
-.hero-buttons{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
-.btn{display:inline-flex;align-items:center;gap:8px;padding:14px 32px;border-radius:50px;font-family:'Outfit',sans-serif;font-size:.95rem;font-weight:600;text-decoration:none;cursor:pointer;transition:all .3s;border:none}
-.btn-primary{background:linear-gradient(135deg,var(--gold),var(--gold-dark));color:var(--bg-dark)}
-.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(212,168,67,0.35)}
-.btn-secondary{background:transparent;color:var(--white);border:1px solid var(--gray-dark)}
-.btn-secondary:hover{border-color:var(--gold);color:var(--gold)}
-.floating-cards{position:absolute;inset:0;pointer-events:none;z-index:1}
-.float-card{position:absolute;width:60px;height:84px;border-radius:8px;background:white;color:#1a1a1a;display:flex;align-items:center;justify-content:center;font-size:1.6rem;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,0.3);animation:floatCard 6s ease-in-out infinite;opacity:.15}
-.float-card:nth-child(1){top:15%;left:8%;animation-delay:0s}.float-card:nth-child(2){top:25%;right:10%;animation-delay:1s}.float-card:nth-child(3){bottom:20%;left:12%;animation-delay:2s}.float-card:nth-child(4){bottom:30%;right:8%;animation-delay:3s}.float-card:nth-child(5){top:50%;left:5%;animation-delay:4s}
-.float-card .red{color:var(--red-suit)}
-@keyframes floatCard{0%,100%{transform:translateY(0) rotate(-5deg)}50%{transform:translateY(-20px) rotate(5deg)}}
-section{padding:100px 24px;position:relative}
-.section-header{text-align:center;margin-bottom:60px}
-.section-header .tag{display:inline-block;padding:4px 16px;border-radius:50px;background:rgba(212,168,67,0.1);color:var(--gold);font-size:.8rem;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px}
-.section-header h2{font-family:'Playfair Display',serif;font-size:clamp(1.8rem,4vw,2.8rem);font-weight:700;margin-bottom:12px}
-.section-header p{color:var(--gray);max-width:600px;margin:0 auto}
-.container{max-width:1200px;margin:0 auto}
-.intro-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
-.intro-card{background:var(--bg-card);border-radius:var(--radius);padding:36px;border:1px solid rgba(255,255,255,0.05);transition:transform .3s,border-color .3s}
-.intro-card:hover{transform:translateY(-4px);border-color:rgba(212,168,67,0.3)}
-.intro-card .icon{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,var(--bg-felt),var(--felt-light));display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-bottom:20px}
-.intro-card h3{font-size:1.2rem;font-weight:700;margin-bottom:10px}
-.intro-card p{color:var(--gray);font-size:.95rem}
-#rankings{background:linear-gradient(180deg,var(--bg-dark) 0%,#0c1a12 50%,var(--bg-dark) 100%)}
-.rankings-list{display:flex;flex-direction:column;gap:16px}
-.rank-item{display:grid;grid-template-columns:56px 1fr 260px;align-items:center;gap:24px;background:var(--bg-card);border-radius:var(--radius);padding:20px 28px;border:1px solid rgba(255,255,255,0.05);cursor:pointer;transition:all .3s}
-.rank-item:hover{border-color:rgba(212,168,67,0.3);transform:translateX(4px)}
-.rank-item.active{border-color:var(--gold);background:rgba(212,168,67,0.05)}
-.rank-number{width:44px;height:44px;border-radius:50%;font-weight:800;font-size:1.1rem;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold),var(--gold-dark));color:var(--bg-dark)}
-.rank-info h3{font-size:1.05rem;font-weight:700;margin-bottom:4px}
-.rank-info p{color:var(--gray);font-size:.85rem}
-.rank-cards{display:flex;gap:6px;justify-content:flex-end}
-.mini-card{width:42px;height:60px;border-radius:6px;background:white;color:#1a1a1a;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;line-height:1;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:transform .3s}
-.mini-card:hover{transform:translateY(-4px) scale(1.1)}
-.mini-card .val{font-size:.85rem}.mini-card .suit{font-size:.95rem}
-.mini-card.red{color:var(--red-suit)}
-.flow-timeline{position:relative;max-width:700px;margin:0 auto}
-.flow-timeline::before{content:'';position:absolute;left:28px;top:0;bottom:0;width:2px;background:linear-gradient(to bottom,var(--gold),var(--bg-felt),transparent)}
-.flow-step{display:flex;gap:24px;margin-bottom:40px;position:relative;opacity:0;transform:translateY(20px);transition:opacity .5s,transform .5s}
-.flow-step.visible{opacity:1;transform:translateY(0)}
-.flow-dot{width:56px;height:56px;min-width:56px;border-radius:50%;background:var(--bg-card);border:2px solid var(--gold);display:flex;align-items:center;justify-content:center;font-size:1.3rem;z-index:1}
-.flow-content{background:var(--bg-card);border-radius:var(--radius);padding:24px;flex:1;border:1px solid rgba(255,255,255,0.05)}
-.flow-content h3{font-size:1.1rem;font-weight:700;margin-bottom:8px;color:var(--gold-light)}
-.flow-content p{color:var(--gray);font-size:.92rem}
-.table-wrapper{display:flex;flex-direction:column;align-items:center;gap:40px}
-.poker-table{position:relative;width:100%;max-width:600px;aspect-ratio:1.6;background:radial-gradient(ellipse,var(--felt-light) 0%,var(--bg-felt) 70%);border-radius:50%;border:12px solid #3a2510;box-shadow:0 0 0 4px #5a3a1a,0 0 60px rgba(13,74,46,0.5),inset 0 0 40px rgba(0,0,0,0.3)}
-.table-pos{position:absolute;transform:translate(-50%,-50%);width:72px;height:72px;border-radius:50%;background:var(--bg-card);border:2px solid var(--gray-dark);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .3s;text-align:center;line-height:1.2}
-.table-pos:hover,.table-pos.active{border-color:var(--gold);background:rgba(212,168,67,0.15);transform:translate(-50%,-50%) scale(1.15);box-shadow:0 0 20px rgba(212,168,67,0.3)}
-.table-pos .pos-icon{font-size:1.2rem;margin-bottom:2px}
-.pos-info-box{background:var(--bg-card);border-radius:var(--radius);padding:28px;border:1px solid rgba(212,168,67,0.2);max-width:500px;text-align:center;min-height:120px}
-.pos-info-box h3{color:var(--gold);font-size:1.2rem;margin-bottom:8px}
-.pos-info-box p{color:var(--gray);font-size:.95rem}
-.tips-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}
-.tip-card{background:var(--bg-card);border-radius:var(--radius);padding:32px;border:1px solid rgba(255,255,255,0.05);transition:transform .3s,border-color .3s;position:relative;overflow:hidden}
-.tip-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--gold),var(--felt-light));transform:scaleX(0);transition:transform .3s;transform-origin:left}
-.tip-card:hover{transform:translateY(-4px);border-color:rgba(212,168,67,0.2)}
-.tip-card:hover::before{transform:scaleX(1)}
-.tip-card .tip-num{font-family:'Playfair Display',serif;font-size:2.5rem;font-weight:900;background:linear-gradient(135deg,var(--gold-light),var(--gold-dark));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;margin-bottom:12px}
-.tip-card h3{font-size:1.05rem;font-weight:700;margin-bottom:8px}
-.tip-card p{color:var(--gray);font-size:.9rem}
-.glossary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
-.gloss-item{background:var(--bg-card);border-radius:12px;padding:20px;border:1px solid rgba(255,255,255,0.05);transition:border-color .3s}
-.gloss-item:hover{border-color:rgba(212,168,67,0.2)}
-.gloss-item dt{font-weight:700;color:var(--gold-light);font-size:1rem;margin-bottom:4px}
-.gloss-item dd{color:var(--gray);font-size:.88rem}
-#quiz{background:linear-gradient(180deg,var(--bg-dark),#10181f)}
-.quiz-box{max-width:600px;margin:0 auto;background:var(--bg-card);border-radius:var(--radius);padding:40px;border:1px solid rgba(212,168,67,0.15);text-align:center}
-.quiz-box h3{font-size:1.3rem;margin-bottom:8px}
-.quiz-hand{display:flex;gap:8px;justify-content:center;margin:24px 0}
-.quiz-hand .mini-card{width:54px;height:76px;font-size:.85rem}
-.quiz-hand .mini-card .val{font-size:1rem}.quiz-hand .mini-card .suit{font-size:1.1rem}
-.quiz-options{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px}
-.quiz-opt{padding:14px;border-radius:12px;background:rgba(255,255,255,0.04);border:1px solid var(--gray-dark);cursor:pointer;font-family:'Outfit',sans-serif;font-size:.95rem;color:var(--white);transition:all .3s}
-.quiz-opt:hover{border-color:var(--gold);background:rgba(212,168,67,0.08)}
-.quiz-opt.correct{border-color:#2ecc71;background:rgba(46,204,113,0.15);color:#2ecc71}
-.quiz-opt.wrong{border-color:var(--red-suit);background:rgba(230,57,70,0.15);color:var(--red-suit)}
-.quiz-feedback{margin-top:20px;font-size:1rem;font-weight:600;min-height:28px}
-.quiz-score{margin-top:12px;color:var(--gray);font-size:.9rem}
-.quiz-next{margin-top:16px}
-footer{text-align:center;padding:40px 24px;border-top:1px solid rgba(255,255,255,0.05);color:var(--gray);font-size:.85rem}
-footer .logo-foot{font-family:'Playfair Display',serif;font-size:1.3rem;font-weight:900;background:linear-gradient(135deg,var(--gold-light),var(--gold-dark));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;margin-bottom:8px}
-.fade-in{opacity:0;transform:translateY(30px);transition:opacity .6s ease-out,transform .6s ease-out}
-.fade-in.visible{opacity:1;transform:translateY(0)}
-@media(max-width:768px){.nav-links{display:none;flex-direction:column;position:absolute;top:100%;left:0;right:0;background:rgba(10,14,20,0.95);padding:20px;gap:16px;border-bottom:1px solid rgba(212,168,67,0.15)}.nav-links.open{display:flex}.menu-toggle{display:block}.rank-item{grid-template-columns:44px 1fr}.rank-cards{display:none}.table-pos{width:56px;height:56px;font-size:.55rem}.table-pos .pos-icon{font-size:1rem}.quiz-options{grid-template-columns:1fr}.navbar{padding:12px 20px}}
-  </style>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♠</text></svg>">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal de Gamificação | Moura Leite Loteamentos</title>
+    <meta name="description"
+        content="Plataforma de gamificação e produtividade da Moura Leite Loteamentos de Botucatu.">
+    <link rel="stylesheet" href="style.css?v=1.0.2">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 </head>
+
 <body>
+    <script>
+        // Auth Guard: Redirect to login if no user is found
+        if (!localStorage.getItem('moura_leite_user')) {
+            window.location.href = 'login.html';
+        }
+    </script>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-container">
+                <div class="logo-placeholder">
+                    <span class="m-letter">M</span><span class="l-letter">L</span>
+                </div>
+                <h2>Moura Leite</h2>
+                <p>Botucatu</p>
+            </div>
 
-  <!-- ── Navbar ── -->
-  <nav class="navbar" id="navbar">
-    <div class="logo">♠ Poker Academy <span>para iniciantes</span></div>
-    <button class="menu-toggle" aria-label="Menu">☰</button>
-    <ul class="nav-links">
-      <li><a href="#intro">O que é Poker</a></li>
-      <li><a href="#rankings">Mãos</a></li>
-      <li><a href="#flow">Como Jogar</a></li>
-      <li><a href="#positions">Posições</a></li>
-      <li><a href="#tips">Dicas</a></li>
-      <li><a href="#glossary">Glossário</a></li>
-      <li><a href="#quiz">Quiz</a></li>
-    </ul>
-  </nav>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-page="dashboard">
+                    <i class="fa-solid fa-house"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" data-page="ranking">
+                    <i class="fa-solid fa-trophy"></i>
+                    <span>Ranking</span>
+                </a>
+                <a href="#" class="nav-item" data-page="missoes">
+                    <i class="fa-solid fa-bullseye"></i>
+                    <span>Missões</span>
+                </a>
+                <a href="#" class="nav-item" data-page="conquistas">
+                    <i class="fa-solid fa-award"></i>
+                    <span>Conquistas</span>
+                </a>
+                <a href="#" class="nav-item" data-page="loja">
+                    <i class="fa-solid fa-cart-shopping"></i>
+                    <span>Prêmios</span>
+                </a>
+                <a href="#" class="nav-item" data-page="historico">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                    <span>Histórico</span>
+                </a>
+                <a href="#" class="nav-item hidden" data-page="admin-users" id="admin-menu-item">
+                    <i class="fa-solid fa-users-gear"></i>
+                    <span>Gestão</span>
+                </a>
+                <a href="#" class="nav-item hidden" data-page="admin-missions" id="admin-missions-menu-item">
+                    <i class="fa-solid fa-plus-circle"></i>
+                    <span>Cadastrar Missões</span>
+                </a>
+                <a href="#" class="nav-item hidden" data-page="admin-prizes" id="admin-prizes-menu-item">
+                    <i class="fa-solid fa-gift"></i>
+                    <span>Cadastrar Prêmios</span>
+                </a>
+                <a href="#" class="nav-item" id="logout-btn">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>Sair</span>
+                </a>
+            </nav>
 
-  <!-- ── Hero ── -->
-  <section class="hero" id="hero">
-    <div class="floating-cards">
-      <div class="float-card">♠</div>
-      <div class="float-card"><span class="red">♥</span></div>
-      <div class="float-card">♣</div>
-      <div class="float-card"><span class="red">♦</span></div>
-      <div class="float-card">♠</div>
+            <div class="user-profile-mini">
+                <div class="avatar">
+                    <img id="user-avatar-img" src="https://ui-avatars.com/api/?name=User&background=006837&color=fff"
+                        alt="User">
+                </div>
+                <div class="user-info">
+                    <span class="name">Carlos Silva</span>
+                    <span class="rank">Consultor Ouro</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-header">
+                <div class="search-bar">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" placeholder="Buscar missões, colegas...">
+                </div>
+                <div class="user-stats-top">
+                    <div class="stat-pill moura-coins-pill">
+                        <svg class="moura-coins-logo" viewBox="0 0 100 100" width="24" height="24">
+                            <!-- Sol laranja -->
+                            <circle cx="68" cy="30" r="28" fill="#F1863B" />
+                            <!-- Copa da árvore -->
+                            <ellipse cx="38" cy="38" rx="16" ry="14" fill="#2E7D32" />
+                            <ellipse cx="55" cy="32" rx="14" ry="13" fill="#388E3C" />
+                            <ellipse cx="68" cy="38" rx="15" ry="13" fill="#2E7D32" />
+                            <ellipse cx="50" cy="28" rx="13" ry="12" fill="#43A047" />
+                            <ellipse cx="42" cy="44" rx="12" ry="10" fill="#388E3C" />
+                            <ellipse cx="62" cy="44" rx="12" ry="10" fill="#2E7D32" />
+                            <ellipse cx="52" cy="22" rx="10" ry="9" fill="#4CAF50" />
+                            <!-- Tronco -->
+                            <path d="M 46 50 L 42 78 C 42 80 44 82 50 82 C 56 82 58 80 58 78 L 54 50 Z" fill="#1B5E20" />
+                            <!-- Linha do chão -->
+                            <line x1="22" y1="82" x2="78" y2="82" stroke="#1B5E20" stroke-width="3" stroke-linecap="round" />
+                        </svg>
+                        <span id="user-points">0</span>
+                    </div>
+                    <div class="stat-pill">
+                        <i class="fa-solid fa-fire"></i>
+                        <span id="user-streak">0 Dias</span>
+                    </div>
+                    <div class="notification-wrapper">
+                        <button class="notification-btn" id="notification-btn">
+                            <i class="fa-solid fa-bell"></i>
+                            <span class="badge" id="notif-badge">0</span>
+                        </button>
+                        <div class="notif-dropdown hidden" id="notif-dropdown">
+                            <div class="notif-header">
+                                <h3>Notificações</h3>
+                                <button id="clear-notifs">Limpar</button>
+                            </div>
+                            <div class="notif-list" id="notif-list">
+                                <!-- Notifications injected here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <div id="content-area" class="content-fade">
+                <!-- Dashboard Section -->
+                <section id="dashboard-page" class="page-section">
+                    <div class="welcome-hero">
+                        <div class="hero-content">
+                            <div id="hero-rank-icon" class="hero-rank-badge"></div>
+                            <div class="hero-text">
+                                <h1>Olá! 👋</h1>
+                                <p id="hero-rank-msg">Carregando seu nível...</p>
+
+                                <div class="rank-progress-wrapper">
+                                    <div class="rank-labels">
+                                        <span>Iniciante</span>
+                                        <span>Bronze</span>
+                                    </div>
+                                    <div class="rank-bar-bg">
+                                        <div class="rank-bar-fill" style="width: 5%;"></div>
+                                    </div>
+                                    <span class="rank-status">0% concluído</span>
+                                </div>
+
+                                <div class="hero-btns">
+                                    <button class="btn-primary" onclick="showPage('missoes')">Ver Novas Missões</button>
+                                    <button class="btn-secondary" id="btn-ver-niveis">Ver Níveis e Bônus</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-grid">
+                        <!-- Progress Card -->
+                        <div class="glass-card progress-card">
+                            <h3>Metas Mensais</h3>
+                            <div class="progress-circle-container">
+                                <svg class="progress-ring" width="120" height="120">
+                                    <circle class="progress-ring__circle-bg" stroke="#eee" stroke-width="8"
+                                        fill="transparent" r="52" cx="60" cy="60" />
+                                    <circle class="progress-ring__circle" id="main-progress" stroke="#006837"
+                                        stroke-width="8" stroke-dasharray="326.7" stroke-dashoffset="326.7"
+                                        fill="transparent" r="52" cx="60" cy="60" />
+                                </svg>
+                                <div class="progress-label" id="meta-percent">0%</div>
+                            </div>
+                            <p id="meta-text">Metas: 0 de 6 completadas</p>
+                            <span class="status-tag" id="meta-status">Status: Iniciando</span>
+                        </div>
+
+                        <!-- Integration Quests -->
+                        <div class="glass-card missions-card">
+                            <div class="card-header">
+                                <h3>Missões de Integração</h3>
+                                <a href="#" onclick="showPage('missoes')">Ver todas</a>
+                            </div>
+                            <div class="mission-list" id="dashboard-missions-list">
+                                <p style="padding:1rem; color:#999; text-align:center;">Carregando missões...</p>
+                            </div>
+                        </div>
+
+                        <!-- Leaderboard Preview -->
+                        <div class="glass-card ranking-card">
+                            <div class="card-header">
+                                <h3>Ranking Geral</h3>
+                                <i class="fa-solid fa-crown"></i>
+                            </div>
+                            <div class="ranking-list">
+                                <p style="padding:1rem; color:#999; text-align:center;">Carregando ranking...</p>
+                            </div>
+                        </div>
+                        <!-- Social Feed Card -->
+                        <div class="glass-card social-feed-card">
+                            <div class="card-header">
+                                <h3>Mural de Conquistas</h3>
+                                <i class="fa-solid fa-bolt" style="color: var(--secondary-orange);"></i>
+                            </div>
+                            <div id="social-feed-list" class="social-feed-list">
+                                <p style="padding:1rem; color:#999; text-align:center;">Nenhuma atividade recente.</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Ranking Page -->
+                <section id="ranking-page" class="page-section hidden">
+                    <div class="section-title">
+                        <h2>Ranking Geral</h2>
+                        <p>Veja quem são os colaboradores mais engajados da Moura Leite.</p>
+                    </div>
+                    <div class="glass-card">
+                        <table class="history-table detailed-ranking">
+                            <thead>
+                                <tr>
+                                    <th>Posição</th>
+                                    <th>Nome</th>
+                                    <th>Departamento</th>
+                                    <th>Diretoria</th>
+                                    <th>Pontos</th>
+                                </tr>
+                            </thead>
+                            <tbody id="full-ranking-body">
+                                <!-- Data injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Quests Page -->
+                <section id="missoes-page" class="page-section hidden">
+                    <div class="section-title">
+                        <h2>Missões e Integração</h2>
+                        <p>Complete tarefas para ganhar ML Coins e fortalecer a equipe.</p>
+                    </div>
+                    <div class="quests-grid" id="quests-grid">
+                        <p style="padding:1rem; color:#999; text-align:center; grid-column: 1 / -1;">Carregando missões...</p>
+                    </div>
+                </section>
+
+                <!-- Store Page -->
+                <section id="loja-page" class="page-section hidden">
+                    <div class="section-title">
+                        <h2>Loja de Prêmios</h2>
+                        <p>Troque seus ML Coins por itens exclusivos da Moura Leite.</p>
+                    </div>
+                    <div class="store-grid" id="store-grid-container">
+                        <!-- Custom prizes injected here -->
+                        <div class="store-card store-card--boost" id="boost-card">
+                            <div class="item-img boost-icon"><i class="fa-solid fa-bolt"></i></div>
+                            <h3>Boost de Pontos <span class="boost-badge">2x</span></h3>
+                            <p class="store-card-desc">Dobra seus ML Coins em missões por 1 dia inteiro. Limite: 1x por mês.</p>
+                            <div class="item-footer">
+                                <span class="price" style="display:flex; align-items:center; gap:4px;">
+                                    50 
+                                    <svg viewBox="0 0 100 100" width="18" height="18" style="filter: drop-shadow(0 1px 1px rgba(0,0,0,0.2));">
+                                        <circle cx="68" cy="30" r="28" fill="#F1863B" />
+                                        <ellipse cx="38" cy="38" rx="16" ry="14" fill="#2E7D32" />
+                                        <ellipse cx="55" cy="32" rx="14" ry="13" fill="#388E3C" />
+                                        <ellipse cx="68" cy="38" rx="15" ry="13" fill="#2E7D32" />
+                                        <ellipse cx="50" cy="28" rx="13" ry="12" fill="#43A047" />
+                                        <ellipse cx="42" cy="44" rx="12" ry="10" fill="#388E3C" />
+                                        <ellipse cx="62" cy="44" rx="12" ry="10" fill="#2E7D32" />
+                                        <ellipse cx="52" cy="22" rx="10" ry="9" fill="#4CAF50" />
+                                        <path d="M 46 50 L 42 78 C 42 80 44 82 50 82 C 56 82 58 80 58 78 L 54 50 Z" fill="#1B5E20" />
+                                        <line x1="22" y1="82" x2="78" y2="82" stroke="#1B5E20" stroke-width="3" stroke-linecap="round" />
+                                    </svg>
+                                </span>
+                                <button class="btn-buy btn-boost" id="boost-btn" onclick="buyBoost()">Ativar</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Achievements Page -->
+                <section id="conquistas-page" class="page-section hidden">
+                    <div class="section-title">
+                        <h2>Minhas Conquistas</h2>
+                        <p>Medalhas e marcos da sua jornada na Moura Leite.</p>
+                    </div>
+                    <div class="achievements-grid">
+                        <div class="achievement-card unlocked">
+                            <div class="medal-icon"><i class="fa-solid fa-handshake"></i></div>
+                            <div class="achievement-info">
+                                <h3>Bem-vindo!</h3>
+                                <p>Primeiro acesso à plataforma realizado.</p>
+                                <span class="date-unlocked">Conquistado hoje</span>
+                            </div>
+                        </div>
+                        <div class="achievement-card locked">
+                            <div class="medal-icon"><i class="fa-solid fa-fire"></i></div>
+                            <div class="achievement-info">
+                                <h3>Frequência (10 dias)</h3>
+                                <p>Visite a plataforma por 10 dias seguidos.</p>
+                            </div>
+                            <div class="lock-overlay"><i class="fa-solid fa-lock"></i></div>
+                        </div>
+                        <div class="achievement-card locked">
+                            <div class="medal-icon"><i class="fa-solid fa-trophy"></i></div>
+                            <div class="achievement-info">
+                                <h3>Centenário (100 dias)</h3>
+                                <p>100 dias de participação ativa.</p>
+                            </div>
+                            <div class="lock-overlay"><i class="fa-solid fa-lock"></i></div>
+                        </div>
+                        <div class="achievement-card locked">
+                            <div class="medal-icon"><i class="fa-solid fa-crown"></i></div>
+                            <div class="achievement-info">
+                                <h3>Veterano (1 ano)</h3>
+                                <p>1 ano integrando a equipe Moura Leite.</p>
+                            </div>
+                            <div class="lock-overlay"><i class="fa-solid fa-lock"></i></div>
+                        </div>
+                        <div class="achievement-card locked">
+                            <div class="medal-icon"><i class="fa-solid fa-users"></i></div>
+                            <div class="achievement-info">
+                                <h3>Amigo da Galera</h3>
+                                <p>Conclua a Integração entre Times 24 vezes.</p>
+                            </div>
+                            <div class="lock-overlay"><i class="fa-solid fa-lock"></i></div>
+                        </div>
+                        <div class="achievement-card locked">
+                            <div class="medal-icon"><i class="fa-brands fa-linkedin"></i></div>
+                            <div class="achievement-info">
+                                <h3>Porta Voz Moura Leite</h3>
+                                <p>Conclua o Embaixador Digital 10 vezes.</p>
+                            </div>
+                            <div class="lock-overlay"><i class="fa-solid fa-lock"></i></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- History Page -->
+                <section id="historico-page" class="page-section hidden">
+                    <div class="section-title">
+                        <h2>Histórico</h2>
+                    </div>
+                    <!-- Filter Tabs -->
+                    <div class="history-filter-bar" id="history-filter-bar">
+                        <button class="history-filter-btn active" id="filter-all" data-filter="all">
+                            <i class="fa-solid fa-list"></i> Todos
+                        </button>
+                        <button class="history-filter-btn" id="filter-prizes" data-filter="prizes">
+                            <i class="fa-solid fa-gift"></i> Resgates de Prêmios
+                        </button>
+                        <button class="history-filter-btn" id="filter-missions" data-filter="missions">
+                            <i class="fa-solid fa-bullseye"></i> Missões
+                        </button>
+                        <div class="user-filter-container admin-only hidden" style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+                            <select id="history-evidence-filter" class="form-input" style="padding: 6px 12px; height: 35px; border-radius: 20px; font-size: 14px;">
+                                <option value="all">Qualquer Evidência</option>
+                                <option value="with_photo">Com Foto</option>
+                                <option value="without_photo">Sem Foto</option>
+                            </select>
+                            <select id="history-user-filter" class="form-input" style="padding: 6px 12px; height: 35px; min-width: 200px; border-radius: 20px; font-size: 14px;">
+                                <option value="all">Todos os Colaboradores</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="glass-card">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Data</th>
+                                    <th>Horário</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body">
+                                <!-- Data will be injected here -->
+                                <tr>
+                                    <td colspan="4" style="text-align: center; padding: 2rem; color: #999;">Nenhum
+                                        resgate realizado ainda.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="history-pagination" class="pagination-container hidden">
+                        <button id="history-prev" class="btn-pagination" disabled><i class="fa-solid fa-chevron-left"></i> Anterior</button>
+                        <span id="history-page-info" class="page-info">Página 1 de 1</span>
+                        <button id="history-next" class="btn-pagination" disabled>Próxima <i class="fa-solid fa-chevron-right"></i></button>
+                    </div>
+                </section>
+
+                <!-- Admin User Management Page -->
+                <section id="admin-users-page" class="page-section hidden">
+                    <div class="section-title">
+                        <h2>Gestão de Usuários</h2>
+                        <p>Administre as contas dos colaboradores cadastrados.</p>
+                    </div>
+                    <div class="glass-card">
+                        <table class="history-table" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>E-mail</th>
+                                    <th>Departamento</th>
+                                    <th>Diretoria</th>
+                                    <th>Pontos</th>
+                                    <th>Status</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-users-body">
+                                <!-- Users will be injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="admin-actions-card glass-card" style="margin-top: 20px; padding: 20px; text-align: center;">
+                        <h3>🛠️ Ferramentas de Auditoria</h3>
+                        <p style="font-size: 14px; color: #666; margin-bottom: 15px;">Use estas ferramentas se os ML Coins dos colaboradores estiverem incorretos ou o histórico tiver entradas duplicadas.</p>
+                        <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                            <button onclick="reconcileAllUsersPoints()" class="btn-buy" style="background: #e67e22; padding: 12px 24px;">
+                                <i class="fa-solid fa-sync"></i> Recalcular e Corrigir Pontos de Todos
+                            </button>
+                            <button onclick="cleanDuplicateHistory()" class="btn-buy" style="background: #6a1b9a; padding: 12px 24px;">
+                                <i class="fa-solid fa-broom"></i> Limpar Duplicatas do Histórico
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Admin Mission Creation Page -->
+                <section id="admin-missions-page" class="page-section hidden">
+                    <div class="section-title">
+                        <h2>Cadastro de Missões</h2>
+                        <p>Crie novas missões para os colaboradores completarem.</p>
+                    </div>
+                    <div class="glass-card">
+                        <form id="mission-form" class="mission-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="mission-name">Nome da Missão</label>
+                                    <input type="text" id="mission-name" placeholder="Ex: Check-in Diário" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="mission-frequency">Frequência</label>
+                                    <select id="mission-frequency" required>
+                                        <option value="" disabled selected>Selecione</option>
+                                        <option value="once">Única</option>
+                                        <option value="daily">Diário</option>
+                                        <option value="weekly">Semanal</option>
+                                        <option value="monthly">Mensal</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="mission-description">Descrição</label>
+                                <textarea id="mission-description" placeholder="Descreva a missão em detalhes..." rows="3" required></textarea>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="mission-points">Pontos</label>
+                                    <input type="number" id="mission-points" placeholder="Ex: 5" min="1" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="mission-icon">Ícone</label>
+                                    <div class="icon-field-row">
+                                        <select id="mission-icon" required>
+                                            <option value="" disabled selected>Selecione o ícone</option>
+                                            <option value="fa-calendar-check">Calendário</option>
+                                            <option value="fa-people-arrows">Integração</option>
+                                            <option value="fa-handshake">Reunião</option>
+                                            <option value="fa-brands fa-linkedin">LinkedIn</option>
+                                            <option value="fa-share-nodes">Compartilhamento</option>
+                                            <option value="fa-award">Conquista</option>
+                                            <option value="fa-bell">Notificação</option>
+                                            <option value="fa-flag-checkered">Desafio</option>
+                                            <option value="fa-rocket">Lançamento</option>
+                                            <option value="fa-heart">Engajamento</option>
+                                            <option value="svg-lampada">💡 Lâmpada (Realista)</option>
+                                            <option value="svg-lampada-badge">💡 Lâmpada (Círculo)</option>
+                                            <option value="svg-lampada-flat">💡 Lâmpada (Flat Contorno)</option>
+                                            <option value="svg-lampada-check">💡 Lâmpada (Check/Validada)</option>
+                                            <option value="svg-brasil">Bandeira do Brasil</option>
+                                            <option value="svg-ticket">🎫 Ticket 1 — Ingresso Dourado</option>
+                                            <option value="svg-voucher">🎁 Ticket 2 — Voucher Azul</option>
+                                            <option value="svg-ticket-premio">⭐ Ticket 3 — Ticket Premium</option>
+                                        </select>
+                                        <div id="mission-icon-preview" class="icon-preview-box" aria-label="Pré-visualização do ícone">
+                                            <i class="fa-solid fa-question"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="mission-color">Cor do Ícone</label>
+                                    <input type="color" id="mission-color" value="#1976d2" required>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="mission-validation-type">Tipo de Validação</label>
+                                    <select id="mission-validation-type" required>
+                                        <option value="" disabled selected>Selecione</option>
+                                        <option value="button">Botão Simples</option>
+                                        <option value="photo">Foto</option>
+                                        <option value="link">Link</option>
+                                        <option value="praise">Elogio (Viva Engage)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="mission-active">Ativa</label>
+                                    <input type="checkbox" id="mission-active" checked>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="mission-surprise">Missão Surpresa</label>
+                                    <input type="checkbox" id="mission-surprise">
+                                </div>
+                                <div class="form-group">
+                                    <label for="mission-duration">Duração (horas)</label>
+                                    <input type="number" id="mission-duration" placeholder="Ex: 4" min="1" max="48">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-auth">Cadastrar Missão</button>
+                            <button type="button" class="btn-secondary hidden" id="cancel-edit-mission-btn" style="margin-top: 10px; width: 100%;">Cancelar Edição</button>
+                        </form>
+                    </div>
+
+                    <div class="section-title" style="margin-top: 3rem;">
+                        <h2>Missões Cadastradas</h2>
+                        <p>Gerencie as missões que já foram criadas.</p>
+                    </div>
+                    <div class="glass-card">
+                        <table class="history-table" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Nome</th>
+                                    <th>Frequência</th>
+                                    <th>Pontos</th>
+                                    <th>Status</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-missions-list-body">
+                                <!-- Missions injected here -->
+                                <tr>
+                                    <td colspan="5" style="text-align: center; padding: 2rem; color: #999;">Carregando missões...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Admin Prize Creation Page -->
+                <section id="admin-prizes-page" class="page-section hidden">
+                    <div class="section-title">
+                        <h2>Cadastro de Prêmios</h2>
+                        <p>Crie novos itens para a loja de prêmios.</p>
+                    </div>
+                    <div class="glass-card">
+                        <form id="prize-form" class="mission-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="prize-name">Nome do Prêmio</label>
+                                    <input type="text" id="prize-name" placeholder="Ex: Mochila Executiva" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="prize-points">Pontos Necessários</label>
+                                    <input type="number" id="prize-points" placeholder="Ex: 500" min="1" required>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 1;">
+                                    <label for="prize-desc">Descrição (Opcional)</label>
+                                    <input type="text" id="prize-desc" placeholder="Ex: Sabores disponíveis: Ristretto, Intenso...">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group" style="flex: 2;">
+                                    <label>Imagem do Prêmio (Escolha Ícone OU envie uma Foto)</label>
+                                    <div style="display: flex; gap: 10px; align-items: center;">
+                                        <select id="prize-icon" style="flex: 1;">
+                                            <option value="">Nenhum ícone (usar foto)</option>
+                                            <option value="fa-mug-hot">Caneca</option>
+                                            <option value="fa-book">Caderno / Livro</option>
+                                            <option value="fa-bottle-water">Garrafa</option>
+                                            <option value="svg-cap">Boné</option>
+                                            <option value="svg-capsule">Cápsulas 3 Unidades (Ilustração)</option>
+                                            <option value="svg-capsule-5">Cápsulas 5 Unidades</option>
+                                            <option value="svg-capsule-10">Cápsulas 10 Unidades</option>
+                                            <option value="svg-capsule-box">Caixa de Cápsulas (Quadrada)</option>
+                                            <option value="svg-capsule-flat">Cápsula Única (Sólida Clean)</option>
+                                            <option value="svg-capsule-3d">Cápsula Única (3D Premium)</option>
+                                            <option value="svg-capsule-outline">Cápsula Única (Apenas Contorno)</option>
+                                            <option value="svg-choco">Barra de Chocolate 🍫</option>
+                                            <option value="svg-cookie">Cookie / Biscoito 🍪</option>
+                                            <option value="svg-choco-cookie">Chocolate + Cookie 🍫🍪</option>
+                                            <option value="svg-snacks-combo">Combo Snacks (Salgadinho + Latas)</option>
+                                            <option value="svg-brasil">Bandeira do Brasil</option>
+                                            <option value="svg-lampada">💡 Lâmpada (Realista)</option>
+                                            <option value="svg-lampada-badge">💡 Lâmpada (Círculo)</option>
+                                            <option value="svg-lampada-flat">💡 Lâmpada (Flat Contorno)</option>
+                                            <option value="svg-lampada-check">💡 Lâmpada (Check/Validada)</option>
+                                            <option value="svg-ticket">🎫 Ticket 1 — Ingresso Dourado (com canhoto e picote)</option>
+                                            <option value="svg-voucher">🎁 Ticket 2 — Voucher Azul (com laço de presente)</option>
+                                            <option value="svg-ticket-premio">⭐ Ticket 3 — Ticket Premium (laranja/vermelho com estrela)</option>
+                                            <option value="fa-glasses">Óculos</option>
+                                            <option value="fa-shirt">Camiseta</option>
+                                            <option value="fa-ticket">Ingresso</option>
+                                            <option value="fa-gift" selected>Presente (Padrão)</option>
+                                        </select>
+                                        <input type="file" id="prize-image" accept="image/*" style="flex: 1;">
+                                    </div>
+                                </div>
+                                <div class="form-group" style="flex: 1;">
+                                    <label for="prize-color">Cor do Ícone</label>
+                                    <input type="color" id="prize-color" value="#006837">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="prize-order">Posição/Ordem (Ex: 1, 2, 3...)</label>
+                                    <input type="number" id="prize-order" value="0" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="prize-quantity">Quantidade em Estoque (-1 = Ilimitado)</label>
+                                    <input type="number" id="prize-quantity" value="-1" min="-1" placeholder="-1 para ilimitado">
+                                </div>
+                                <div class="form-group">
+                                    <label for="prize-cooldown">Cooldown (Dias) <small>(0=livre)</small></label>
+                                    <input type="number" id="prize-cooldown" value="0" min="0" placeholder="Ex: 15">
+                                </div>
+                                <div class="form-group" style="display:flex; flex-direction:column; justify-content:center;">
+                                    <label for="prize-active">Ativo na Loja</label>
+                                    <div style="margin-top:10px;">
+                                        <input type="checkbox" id="prize-active" checked style="width:20px; height:20px;">
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="text-align: center; margin-bottom: 15px;">
+                                <div id="prize-preview" style="width: 100px; height: 100px; background: #f0f0f0; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-size: 2.5rem; overflow: hidden; border: 1px solid #ddd;">
+                                    <i class="fa-solid fa-gift" style="color: #006837;"></i>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn-auth">Cadastrar Prêmio</button>
+                            <button type="button" class="btn-secondary hidden" id="cancel-edit-prize-btn" style="margin-top: 10px; width: 100%;">Cancelar Edição</button>
+                        </form>
+                    </div>
+
+                    <div class="section-title" style="margin-top: 3rem;">
+                        <h2>Prêmios Cadastrados</h2>
+                        <p>Gerencie os prêmios disponíveis na loja.</p>
+                    </div>
+                    <div class="glass-card">
+                        <table class="history-table" style="width:100%;">
+                            <thead>
+                                <tr>
+                                    <th>Ordem</th>
+                                    <th>Nome</th>
+                                    <th>Pontos</th>
+                                    <th>Estoque</th>
+                                    <th>Status</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-prizes-list-body">
+                                <tr>
+                                    <td colspan="5" style="text-align: center; padding: 2rem; color: #999;">Carregando prêmios...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
     </div>
-    <div class="hero-content fade-in">
-      <div class="hero-badge">🃏 Guia Completo &amp; Gratuito</div>
-      <h1>Domine o <span class="gold">Poker</span> começando do zero</h1>
-      <p>Tudo que você precisa saber para sentar numa mesa com confiança: regras, mãos, posições, estratégia e muito mais.</p>
-      <div class="hero-buttons">
-        <a href="#rankings" class="btn btn-primary">♠ Ver Ranking de Mãos</a>
-        <a href="#flow" class="btn btn-secondary">Como funciona uma rodada →</a>
-      </div>
+    <input type="file" id="lunch-photo-input" accept="image/*" class="hidden">
+    <input type="file" id="reuniao-photo-input" accept="image/*" class="hidden">
+    <input type="file" id="games-photo-input" accept="image/*" class="hidden">
+    
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    
+    <script src="script.js?v=1.0.3"></script>
+    <!-- Ranks Info Modal -->
+    <div id="ranks-modal" class="modal hidden">
+        <div class="modal-content">
+            <span class="close-modal" id="close-ranks">&times;</span>
+            <div class="section-title">
+                <h2>Níveis e Benefícios</h2>
+                <p>Suba de nível resgatando prêmios! Quanto mais você utilizar seus ML Coins, maior o seu nível.</p>
+            </div>
+
+            <div class="ranks-grid">
+                <div class="rank-benefit-card">
+                    <div class="rank-badge rank-iniciante"><i class="fa-solid fa-seedling"></i></div>
+                    <h4>Iniciante</h4>
+                    <p>0 - 500 ML Coins gastos</p>
+                    <p><em>Início da jornada.</em></p>
+                </div>
+                <div class="rank-benefit-card">
+                    <div class="rank-badge rank-bronze"><i class="fa-solid fa-medal"></i></div>
+                    <h4>Bronze</h4>
+                    <p>501 - 1.500 ML Coins gastos</p>
+                    <p><strong>Bônus:</strong> 1.1x ML Coins em missões.</p>
+                </div>
+                <div class="rank-benefit-card">
+                    <div class="rank-badge rank-prata"><i class="fa-solid fa-award"></i></div>
+                    <h4>Prata</h4>
+                    <p>1.501 - 3.000 ML Coins gastos</p>
+                    <p><strong>Bônus:</strong> 1.2x ML Coins em missões.</p>
+                </div>
+                <div class="rank-benefit-card">
+                    <div class="rank-badge rank-ouro"><i class="fa-solid fa-trophy"></i></div>
+                    <h4>Ouro</h4>
+                    <p>3.001 - 6.000 ML Coins gastos</p>
+                    <p><strong>Bônus:</strong> 1.5x ML Coins em missões.</p>
+                </div>
+                <div class="rank-benefit-card">
+                    <div class="rank-badge rank-platina"><i class="fa-solid fa-crown"></i></div>
+                    <h4>Platina</h4>
+                    <p>6.001 - 10.000 ML Coins gastos</p>
+                    <p><strong>Bônus:</strong> 2.0x ML Coins em missões.</p>
+                </div>
+                <div class="rank-benefit-card">
+                    <div class="rank-badge rank-diamante"><i class="fa-solid fa-gem"></i></div>
+                    <h4>Diamante</h4>
+                    <p>10.000+ ML Coins gastos</p>
+                    <p><strong>Bônus:</strong> Missões e prêmios exclusivos.</p>
+                </div>
+            </div>
+        </div>
     </div>
-  </section>
-
-  <!-- ── O que é Poker ── -->
-  <section id="intro">
-    <div class="container">
-      <div class="section-header fade-in">
-        <div class="tag">Fundamentos</div>
-        <h2>O que é Poker Texas Hold'em?</h2>
-        <p>A variante mais popular do mundo. Entenda os conceitos fundamentais antes de jogar.</p>
-      </div>
-      <div class="intro-grid">
-        <div class="intro-card fade-in">
-          <div class="icon">🎯</div>
-          <h3>Objetivo do Jogo</h3>
-          <p>Ganhar fichas formando a melhor combinação de 5 cartas possível — ou fazendo todos os oponentes desistirem (fold) da mão.</p>
+    <!-- Praise Mission Modal -->
+    <div id="praise-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close-modal" id="close-praise-modal">&times;</span>
+            <div class="section-title">
+                <h2>Enviar Elogio</h2>
+                <p>Reconheça o trabalho de um colega e dê os pontos a ele!</p>
+            </div>
+            <form id="praise-form" class="mission-form">
+                <input type="hidden" id="praise-mission-id">
+                <input type="hidden" id="praise-mission-name">
+                <input type="hidden" id="praise-mission-points">
+                <input type="hidden" id="praise-last-key">
+                <input type="hidden" id="praise-date-key">
+                <div class="form-group">
+                    <label for="praise-user-select">Quem você quer elogiar?</label>
+                    <!-- Usando select padrão. Podemos popular dinamicamente no JS -->
+                    <select id="praise-user-select" required>
+                        <option value="" disabled selected>Carregando colaboradores...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="praise-link-input">Link da publicação no Viva Engage</label>
+                    <input type="url" id="praise-link-input" placeholder="https://engage.cloud.microsoft/..." required>
+                </div>
+                <button type="submit" class="btn-auth">Enviar Elogio e Pontos</button>
+            </form>
         </div>
-        <div class="intro-card fade-in">
-          <div class="icon">🃏</div>
-          <h3>Suas Cartas</h3>
-          <p>Cada jogador recebe <strong>2 cartas fechadas</strong> (hole cards). Ao longo da rodada, 5 cartas comunitárias são reveladas na mesa.</p>
-        </div>
-        <div class="intro-card fade-in">
-          <div class="icon">💰</div>
-          <h3>Apostas</h3>
-          <p>Há 4 rodadas de aposta: <strong>Pré-Flop, Flop, Turn e River</strong>. Em cada uma, você pode apostar, pagar, aumentar ou desistir.</p>
-        </div>
-        <div class="intro-card fade-in">
-          <div class="icon">🏆</div>
-          <h3>Quem ganha?</h3>
-          <p>No showdown, quem tiver a melhor mão de 5 cartas (usando suas 2 + as comunitárias) leva o pote. Ou quem fizer todos foldarem.</p>
-        </div>
-      </div>
     </div>
-  </section>
 
-  <!-- ── Ranking de Mãos ── -->
-  <section id="rankings">
-    <div class="container">
-      <div class="section-header fade-in">
-        <div class="tag">Essencial</div>
-        <h2>Ranking de Mãos</h2>
-        <p>Da mais forte para a mais fraca. Decore essa lista — ela é a base de tudo!</p>
-      </div>
-      <div class="rankings-list">
-        <!-- 1 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">1</div>
-          <div class="rank-info">
-            <h3>Royal Flush</h3>
-            <p>Sequência de 10 a Ás, todas do mesmo naipe. A mão imbatível.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card"><span class="val">10</span><span class="suit">♠</span></div>
-            <div class="mini-card"><span class="val">J</span><span class="suit">♠</span></div>
-            <div class="mini-card"><span class="val">Q</span><span class="suit">♠</span></div>
-            <div class="mini-card"><span class="val">K</span><span class="suit">♠</span></div>
-            <div class="mini-card"><span class="val">A</span><span class="suit">♠</span></div>
-          </div>
+    <!-- User Edit Modal -->
+    <div id="edit-user-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close-modal" id="close-edit-user">&times;</span>
+            <div class="section-title">
+                <h2>Editar Usuário</h2>
+                <p id="edit-user-email-label" style="font-size: 0.8rem; color: #999;"></p>
+            </div>
+            <form id="edit-user-form" class="mission-form">
+                <input type="hidden" id="edit-user-email">
+                <div class="form-group">
+                    <label for="edit-user-name">Nome Completo</label>
+                    <input type="text" id="edit-user-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-user-points">Pontos</label>
+                    <input type="number" id="edit-user-points" required min="0">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="edit-user-dept">Departamento</label>
+                        <select id="edit-user-dept" required>
+                            <option value="obras">Obras</option>
+                            <option value="pessoas">Pessoas</option>
+                            <option value="relacionamento">Relacionamento</option>
+                            <option value="servicos">Serviços</option>
+                            <option value="marketing">Marketing</option>
+                            <option value="secretaria-vendas">Secretaria de Vendas</option>
+                            <option value="projetos">Projetos</option>
+                            <option value="pdv-tatui">PDV Tatuí</option>
+                            <option value="controladoria">Controladoria</option>
+                            <option value="tesouraria">Tesouraria</option>
+                            <option value="suprimentos">Suprimentos</option>
+                            <option value="comercial">Comercial</option>
+                            <option value="cobranca">Cobrança</option>
+                            <option value="pdv-avare">PDV Avaré</option>
+                            <option value="sdr">SDR</option>
+                            <option value="engenharia">Engenharia</option>
+                            <option value="novos-negocios">Novos Negócios</option>
+                            <option value="Tecnologia">Tecnologia</option>
+                            <option value="RH">RH</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-user-dir">Diretoria</label>
+                        <select id="edit-user-dir" required>
+                            <option value="engenharia">Engenharia</option>
+                            <option value="financeira">Financeira</option>
+                            <option value="comercial">Comercial</option>
+                            <option value="projetos">Projetos</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn-auth">Salvar Alterações</button>
+            </form>
         </div>
-        <!-- 2 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">2</div>
-          <div class="rank-info">
-            <h3>Straight Flush</h3>
-            <p>Cinco cartas em sequência, todas do mesmo naipe.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card red"><span class="val">5</span><span class="suit">♥</span></div>
-            <div class="mini-card red"><span class="val">6</span><span class="suit">♥</span></div>
-            <div class="mini-card red"><span class="val">7</span><span class="suit">♥</span></div>
-            <div class="mini-card red"><span class="val">8</span><span class="suit">♥</span></div>
-            <div class="mini-card red"><span class="val">9</span><span class="suit">♥</span></div>
-          </div>
-        </div>
-        <!-- 3 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">3</div>
-          <div class="rank-info">
-            <h3>Quadra (Four of a Kind)</h3>
-            <p>Quatro cartas do mesmo valor.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card"><span class="val">K</span><span class="suit">♠</span></div>
-            <div class="mini-card red"><span class="val">K</span><span class="suit">♥</span></div>
-            <div class="mini-card red"><span class="val">K</span><span class="suit">♦</span></div>
-            <div class="mini-card"><span class="val">K</span><span class="suit">♣</span></div>
-            <div class="mini-card"><span class="val">2</span><span class="suit">♣</span></div>
-          </div>
-        </div>
-        <!-- 4 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">4</div>
-          <div class="rank-info">
-            <h3>Full House</h3>
-            <p>Uma trinca + um par. Ex: três Reis e dois Setes.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card red"><span class="val">J</span><span class="suit">♥</span></div>
-            <div class="mini-card red"><span class="val">J</span><span class="suit">♦</span></div>
-            <div class="mini-card"><span class="val">J</span><span class="suit">♣</span></div>
-            <div class="mini-card"><span class="val">4</span><span class="suit">♠</span></div>
-            <div class="mini-card red"><span class="val">4</span><span class="suit">♥</span></div>
-          </div>
-        </div>
-        <!-- 5 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">5</div>
-          <div class="rank-info">
-            <h3>Flush</h3>
-            <p>Cinco cartas do mesmo naipe, sem necessidade de sequência.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card red"><span class="val">2</span><span class="suit">♦</span></div>
-            <div class="mini-card red"><span class="val">5</span><span class="suit">♦</span></div>
-            <div class="mini-card red"><span class="val">9</span><span class="suit">♦</span></div>
-            <div class="mini-card red"><span class="val">J</span><span class="suit">♦</span></div>
-            <div class="mini-card red"><span class="val">K</span><span class="suit">♦</span></div>
-          </div>
-        </div>
-        <!-- 6 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">6</div>
-          <div class="rank-info">
-            <h3>Sequência (Straight)</h3>
-            <p>Cinco cartas em ordem numérica, de naipes diferentes.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card"><span class="val">4</span><span class="suit">♣</span></div>
-            <div class="mini-card red"><span class="val">5</span><span class="suit">♦</span></div>
-            <div class="mini-card"><span class="val">6</span><span class="suit">♠</span></div>
-            <div class="mini-card red"><span class="val">7</span><span class="suit">♥</span></div>
-            <div class="mini-card"><span class="val">8</span><span class="suit">♣</span></div>
-          </div>
-        </div>
-        <!-- 7 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">7</div>
-          <div class="rank-info">
-            <h3>Trinca (Three of a Kind)</h3>
-            <p>Três cartas do mesmo valor.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card"><span class="val">8</span><span class="suit">♠</span></div>
-            <div class="mini-card red"><span class="val">8</span><span class="suit">♥</span></div>
-            <div class="mini-card"><span class="val">8</span><span class="suit">♣</span></div>
-            <div class="mini-card red"><span class="val">K</span><span class="suit">♦</span></div>
-            <div class="mini-card"><span class="val">3</span><span class="suit">♠</span></div>
-          </div>
-        </div>
-        <!-- 8 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">8</div>
-          <div class="rank-info">
-            <h3>Dois Pares (Two Pair)</h3>
-            <p>Dois pares diferentes de cartas.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card"><span class="val">A</span><span class="suit">♠</span></div>
-            <div class="mini-card red"><span class="val">A</span><span class="suit">♥</span></div>
-            <div class="mini-card"><span class="val">9</span><span class="suit">♣</span></div>
-            <div class="mini-card red"><span class="val">9</span><span class="suit">♦</span></div>
-            <div class="mini-card"><span class="val">5</span><span class="suit">♠</span></div>
-          </div>
-        </div>
-        <!-- 9 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">9</div>
-          <div class="rank-info">
-            <h3>Par (One Pair)</h3>
-            <p>Duas cartas do mesmo valor.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card red"><span class="val">Q</span><span class="suit">♥</span></div>
-            <div class="mini-card"><span class="val">Q</span><span class="suit">♣</span></div>
-            <div class="mini-card"><span class="val">7</span><span class="suit">♠</span></div>
-            <div class="mini-card red"><span class="val">4</span><span class="suit">♦</span></div>
-            <div class="mini-card"><span class="val">2</span><span class="suit">♣</span></div>
-          </div>
-        </div>
-        <!-- 10 -->
-        <div class="rank-item fade-in">
-          <div class="rank-number">10</div>
-          <div class="rank-info">
-            <h3>Carta Alta (High Card)</h3>
-            <p>Nenhuma combinação. A carta mais alta decide.</p>
-          </div>
-          <div class="rank-cards">
-            <div class="mini-card"><span class="val">A</span><span class="suit">♠</span></div>
-            <div class="mini-card red"><span class="val">J</span><span class="suit">♦</span></div>
-            <div class="mini-card"><span class="val">8</span><span class="suit">♣</span></div>
-            <div class="mini-card red"><span class="val">4</span><span class="suit">♥</span></div>
-            <div class="mini-card"><span class="val">2</span><span class="suit">♠</span></div>
-          </div>
-        </div>
-      </div>
     </div>
-  </section>
 
-  <!-- ── Como funciona uma rodada ── -->
-  <section id="flow">
-    <div class="container">
-      <div class="section-header fade-in">
-        <div class="tag">Passo a passo</div>
-        <h2>Como Funciona uma Rodada</h2>
-        <p>Cada mão de Texas Hold'em segue exatamente estas etapas.</p>
-      </div>
-      <div class="flow-timeline">
-        <div class="flow-step">
-          <div class="flow-dot">🎰</div>
-          <div class="flow-content">
-            <h3>1. Blinds</h3>
-            <p>Os dois jogadores à esquerda do dealer postam as apostas obrigatórias: o <strong>Small Blind</strong> (metade) e o <strong>Big Blind</strong> (inteiro). Isso garante que sempre haja fichas no pote.</p>
-          </div>
+    <!-- User Point History Modal -->
+    <div id="user-history-modal" class="modal hidden">
+        <div class="modal-content" style="max-width: 750px; max-height: 85vh; display: flex; flex-direction: column;">
+            <span class="close-modal" id="close-user-history">&times;</span>
+            <div class="section-title" style="margin-bottom: 1rem;">
+                <h2 id="user-history-modal-title">📋 Histórico de Pontos</h2>
+                <p id="user-history-modal-subtitle" style="font-size: 0.85rem; color: #999;"></p>
+            </div>
+            <!-- Summary Pills -->
+            <div id="user-history-summary" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:1rem;"></div>
+            <!-- Filter Bar -->
+            <div class="history-filter-bar" id="user-history-filter-bar">
+                <button class="history-filter-btn active" data-filter="all">
+                    <i class="fa-solid fa-list"></i> Todos
+                </button>
+                <button class="history-filter-btn" data-filter="missions">
+                    <i class="fa-solid fa-bullseye"></i> Missões
+                </button>
+                <button class="history-filter-btn" data-filter="prizes">
+                    <i class="fa-solid fa-gift"></i> Resgates
+                </button>
+            </div>
+            <!-- Table -->
+            <div style="overflow-y: auto; flex: 1;">
+                <table class="history-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Hora</th>
+                            <th>Transação</th>
+                            <th style="text-align:center;">Pontos</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-history-modal-body">
+                        <tr><td colspan="5" style="text-align:center; padding:2rem; color:#999;">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
-        <div class="flow-step">
-          <div class="flow-dot">🃏</div>
-          <div class="flow-content">
-            <h3>2. Pré-Flop</h3>
-            <p>Cada jogador recebe <strong>2 cartas fechadas</strong>. A ação começa pelo jogador à esquerda do Big Blind. Você pode: <strong>Fold</strong> (desistir), <strong>Call</strong> (pagar) ou <strong>Raise</strong> (aumentar).</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-dot">3️⃣</div>
-          <div class="flow-content">
-            <h3>3. Flop</h3>
-            <p>Três cartas comunitárias são reveladas na mesa. Nova rodada de apostas começa pelo primeiro jogador ativo à esquerda do dealer. Agora também pode dar <strong>Check</strong> (passar sem apostar).</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-dot">4️⃣</div>
-          <div class="flow-content">
-            <h3>4. Turn</h3>
-            <p>A <strong>quarta carta comunitária</strong> é revelada. Mais uma rodada de apostas, idêntica ao flop. As apostas geralmente dobram nessa rua.</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-dot">5️⃣</div>
-          <div class="flow-content">
-            <h3>5. River</h3>
-            <p>A <strong>quinta e última carta comunitária</strong> é revelada. Última rodada de apostas — sua última chance de blefar ou extrair valor.</p>
-          </div>
-        </div>
-        <div class="flow-step">
-          <div class="flow-dot">🏆</div>
-          <div class="flow-content">
-            <h3>6. Showdown</h3>
-            <p>Se restarem dois ou mais jogadores, as cartas são reveladas. Quem tiver a <strong>melhor mão de 5 cartas</strong> (combinando suas 2 com as 5 da mesa) leva o pote!</p>
-          </div>
-        </div>
-      </div>
     </div>
-  </section>
-
-  <!-- ── Posições ── -->
-  <section id="positions">
-    <div class="container">
-      <div class="section-header fade-in">
-        <div class="tag">Estratégia</div>
-        <h2>Posições na Mesa</h2>
-        <p>Sua posição define seu poder. Clique em cada assento para entender.</p>
-      </div>
-      <div class="table-wrapper fade-in">
-        <div class="poker-table">
-          <div class="table-pos" data-pos="dealer" style="bottom: -7%; left: 50%;">
-            <span class="pos-icon">🔘</span>BTN
-          </div>
-          <div class="table-pos" data-pos="sb" style="bottom: 12%; left: -2%;">
-            <span class="pos-icon">🪙</span>SB
-          </div>
-          <div class="table-pos" data-pos="bb" style="top: 12%; left: -2%;">
-            <span class="pos-icon">💰</span>BB
-          </div>
-          <div class="table-pos" data-pos="utg" style="top: -7%; left: 50%;">
-            <span class="pos-icon">⚡</span>UTG
-          </div>
-          <div class="table-pos" data-pos="mp" style="top: 12%; right: -2%;">
-            <span class="pos-icon">🎯</span>MP
-          </div>
-          <div class="table-pos" data-pos="co" style="bottom: 12%; right: -2%;">
-            <span class="pos-icon">🔥</span>CO
-          </div>
-        </div>
-        <div class="pos-info-box">
-          <h3>Clique em uma posição</h3>
-          <p>Selecione um assento na mesa acima para aprender sobre sua importância estratégica.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Dicas ── -->
-  <section id="tips">
-    <div class="container">
-      <div class="section-header fade-in">
-        <div class="tag">Para iniciantes</div>
-        <h2>8 Dicas de Ouro</h2>
-        <p>Conselhos fundamentais para começar ganhando (ou pelo menos perdendo menos).</p>
-      </div>
-      <div class="tips-grid">
-        <div class="tip-card fade-in">
-          <div class="tip-num">01</div>
-          <h3>Jogue poucas mãos</h3>
-          <p>Iniciantes jogam mãos demais. Seja seletivo: jogue apenas mãos fortes e em boas posições. Qualidade > quantidade.</p>
-        </div>
-        <div class="tip-card fade-in">
-          <div class="tip-num">02</div>
-          <h3>Posição é tudo</h3>
-          <p>Quanto mais tarde você agir, melhor. No botão (dealer), você vê o que todos fizeram antes de decidir.</p>
-        </div>
-        <div class="tip-card fade-in">
-          <div class="tip-num">03</div>
-          <h3>Não tenha medo de foldar</h3>
-          <p>Fold não é fraqueza, é inteligência. Os melhores jogadores do mundo foldão mais de 70% das mãos.</p>
-        </div>
-        <div class="tip-card fade-in">
-          <div class="tip-num">04</div>
-          <h3>Gerencie seu bankroll</h3>
-          <p>Nunca jogue com dinheiro que não pode perder. Tenha pelo menos 20 buy-ins para o nível que está jogando.</p>
-        </div>
-        <div class="tip-card fade-in">
-          <div class="tip-num">05</div>
-          <h3>Observe os oponentes</h3>
-          <p>Preste atenção em padrões: quem joga muitas mãos? Quem só aposta com mão forte? Use essa informação.</p>
-        </div>
-        <div class="tip-card fade-in">
-          <div class="tip-num">06</div>
-          <h3>Aposte com propósito</h3>
-          <p>Cada aposta precisa ter um motivo: extrair valor, proteger sua mão ou blefar. Nunca aposte "só porque sim".</p>
-        </div>
-        <div class="tip-card fade-in">
-          <div class="tip-num">07</div>
-          <h3>Controle suas emoções</h3>
-          <p>O "tilt" (jogar irritado após uma perda) é o maior inimigo do iniciante. Respire, levante e volte depois.</p>
-        </div>
-        <div class="tip-card fade-in">
-          <div class="tip-num">08</div>
-          <h3>Estude constantemente</h3>
-          <p>Poker é um jogo de habilidade a longo prazo. Assista vídeos, leia livros e revise suas mãos jogadas.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Glossário ── -->
-  <section id="glossary">
-    <div class="container">
-      <div class="section-header fade-in">
-        <div class="tag">Referência</div>
-        <h2>Glossário do Poker</h2>
-        <p>Termos essenciais que você vai ouvir em qualquer mesa.</p>
-      </div>
-      <div class="glossary-grid fade-in">
-        <dl class="gloss-item"><dt>All-in</dt><dd>Apostar todas as suas fichas de uma vez.</dd></dl>
-        <dl class="gloss-item"><dt>Blind</dt><dd>Aposta obrigatória feita antes das cartas serem distribuídas.</dd></dl>
-        <dl class="gloss-item"><dt>Bluff</dt><dd>Apostar forte com uma mão fraca para fazer o oponente desistir.</dd></dl>
-        <dl class="gloss-item"><dt>Call</dt><dd>Igualar a aposta do oponente.</dd></dl>
-        <dl class="gloss-item"><dt>Check</dt><dd>Passar a vez sem apostar (só quando ninguém apostou antes).</dd></dl>
-        <dl class="gloss-item"><dt>Flop</dt><dd>As três primeiras cartas comunitárias reveladas.</dd></dl>
-        <dl class="gloss-item"><dt>Fold</dt><dd>Desistir da mão e perder o que já apostou.</dd></dl>
-        <dl class="gloss-item"><dt>Hole Cards</dt><dd>Suas duas cartas fechadas, que só você vê.</dd></dl>
-        <dl class="gloss-item"><dt>Pot</dt><dd>O monte total de fichas apostadas na rodada.</dd></dl>
-        <dl class="gloss-item"><dt>Raise</dt><dd>Aumentar a aposta acima do valor atual.</dd></dl>
-        <dl class="gloss-item"><dt>River</dt><dd>A quinta e última carta comunitária.</dd></dl>
-        <dl class="gloss-item"><dt>Showdown</dt><dd>Momento em que os jogadores restantes mostram suas cartas.</dd></dl>
-        <dl class="gloss-item"><dt>Tilt</dt><dd>Estado emocional negativo que leva a decisões ruins.</dd></dl>
-        <dl class="gloss-item"><dt>Turn</dt><dd>A quarta carta comunitária revelada.</dd></dl>
-        <dl class="gloss-item"><dt>Value Bet</dt><dd>Apostar com mão boa para extrair mais fichas do oponente.</dd></dl>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Quiz ── -->
-  <section id="quiz">
-    <div class="container">
-      <div class="section-header fade-in">
-        <div class="tag">Teste seus conhecimentos</div>
-        <h2>Quiz: Identifique a Mão</h2>
-        <p>Veja as cartas e diga qual é a combinação correta.</p>
-      </div>
-      <div class="quiz-box fade-in">
-        <h3 id="quiz-counter">Pergunta 1 de 6</h3>
-        <div class="quiz-hand" id="quiz-hand"></div>
-        <p style="color: var(--gray); font-size: 0.9rem;">Qual é essa mão?</p>
-        <div class="quiz-options" id="quiz-options"></div>
-        <div class="quiz-feedback" id="quiz-feedback"></div>
-        <div class="quiz-score" id="quiz-score">Acertos: 0 / 6</div>
-        <button class="btn btn-primary quiz-next" id="quiz-next" style="display:none;">Próxima →</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── Footer ── -->
-  <footer>
-    <div class="logo-foot">♠ Poker Academy</div>
-    <p>Feito para quem quer aprender poker do zero. Jogue com responsabilidade. ♠♥♣♦</p>
-  </footer>
-
-  <script>
-    // Navbar scroll
-    const navbar = document.querySelector('.navbar');
-    const menuToggle = document.querySelector('.menu-toggle');
-    const navLinks = document.querySelector('.nav-links');
-
-    window.addEventListener('scroll', () => {
-      navbar.classList.toggle('scrolled', window.scrollY > 60);
-    });
-
-    menuToggle.addEventListener('click', () => {
-      navLinks.classList.toggle('open');
-    });
-
-    navLinks.querySelectorAll('a').forEach(a => {
-      a.addEventListener('click', () => navLinks.classList.remove('open'));
-    });
-
-    // Scroll animations
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(e => {
-        if (e.isIntersecting) e.target.classList.add('visible');
-      });
-    }, { threshold: .15 });
-
-    document.querySelectorAll('.fade-in, .flow-step').forEach(el => observer.observe(el));
-
-    // Position data
-    const posData = {
-      dealer: { name: 'Dealer (BTN)', desc: 'O Dealer (ou Button) é a melhor posição da mesa. Você age por último após o flop, tendo máxima informação sobre os adversários antes de tomar sua decisão.' },
-      sb: { name: 'Small Blind (SB)', desc: 'O Small Blind posta metade do blind obrigatório. Está à esquerda do Dealer e age em penúltimo após o flop. Posição desfavorável.' },
-      bb: { name: 'Big Blind (BB)', desc: 'O Big Blind posta o blind completo. Age por último no pré-flop, mas em posição ruim nas rodadas seguintes. Defenda seus blinds com sabedoria.' },
-      utg: { name: 'Under The Gun (UTG)', desc: 'Primeira posição a agir no pré-flop. É a posição mais difícil pois você não tem informação. Jogue apenas mãos premium aqui.' },
-      mp: { name: 'Middle Position (MP)', desc: 'Posição intermediária. Você tem alguma informação mas ainda há muitos jogadores para agir depois. Abra seu range moderadamente.' },
-      co: { name: 'Cutoff (CO)', desc: 'Segunda melhor posição da mesa, logo antes do Dealer. Ótima para roubar blinds e jogar um range mais amplo de mãos.' }
-    };
-
-    document.querySelectorAll('.table-pos').forEach(pos => {
-      pos.addEventListener('click', () => {
-        document.querySelectorAll('.table-pos').forEach(p => p.classList.remove('active'));
-        pos.classList.add('active');
-        const key = pos.dataset.pos, info = posData[key], box = document.querySelector('.pos-info-box');
-        box.innerHTML = `<h3>${info.name}</h3><p>${info.desc}</p>`;
-      });
-    });
-
-    // Quiz Questions Pool
-    const allQuestions = [
-      { cards: [{ v: 'A', s: '♠', red: false }, { v: 'K', s: '♠', red: false }, { v: 'Q', s: '♠', red: false }, { v: 'J', s: '♠', red: false }, { v: '10', s: '♠', red: false }], options: ['Sequência', 'Flush', 'Royal Flush', 'Full House'], answer: 2 },
-      { cards: [{ v: 'K', s: '♥', red: true }, { v: 'K', s: '♦', red: true }, { v: 'K', s: '♣', red: false }, { v: '7', s: '♠', red: false }, { v: '7', s: '♥', red: true }], options: ['Trinca', 'Two Pair', 'Full House', 'Quadra'], answer: 2 },
-      { cards: [{ v: '9', s: '♣', red: false }, { v: '9', s: '♦', red: true }, { v: '9', s: '♥', red: true }, { v: '9', s: '♠', red: false }, { v: '3', s: '♣', red: false }], options: ['Full House', 'Quadra', 'Trinca', 'Flush'], answer: 1 },
-      { cards: [{ v: '5', s: '♥', red: true }, { v: '6', s: '♦', red: true }, { v: '7', s: '♣', red: false }, { v: '8', s: '♠', red: false }, { v: '9', s: '♥', red: true }], options: ['Flush', 'Sequência', 'Straight Flush', 'Two Pair'], answer: 1 },
-      { cards: [{ v: 'A', s: '♥', red: true }, { v: 'A', s: '♠', red: false }, { v: '5', s: '♣', red: false }, { v: '9', s: '♦', red: true }, { v: 'J', s: '♠', red: false }], options: ['Carta Alta', 'Par', 'Two Pair', 'Trinca'], answer: 1 },
-      { cards: [{ v: '2', s: '♦', red: true }, { v: '5', s: '♦', red: true }, { v: '9', s: '♦', red: true }, { v: 'J', s: '♦', red: true }, { v: 'K', s: '♦', red: true }], options: ['Sequência', 'Flush', 'Straight Flush', 'Full House'], answer: 1 },
-      { cards: [{ v: 'Q', s: '♠', red: false }, { v: 'Q', s: '♥', red: true }, { v: 'J', s: '♣', red: false }, { v: 'J', s: '♦', red: true }, { v: '2', s: '♠', red: false }], options: ['Par', 'Dois Pares', 'Trinca', 'Full House'], answer: 1 },
-      { cards: [{ v: '8', s: '♠', red: false }, { v: '8', s: '♥', red: true }, { v: '8', s: '♣', red: false }, { v: 'K', s: '♦', red: true }, { v: '3', s: '♠', red: false }], options: ['Par', 'Dois Pares', 'Trinca', 'Quadra'], answer: 2 },
-      { cards: [{ v: 'A', s: '♠', red: false }, { v: 'J', s: '♦', red: true }, { v: '8', s: '♣', red: false }, { v: '4', s: '♥', red: true }, { v: '2', s: '♠', red: false }], options: ['Carta Alta', 'Par', 'Sequência', 'Flush'], answer: 0 },
-      { cards: [{ v: '4', s: '♣', red: false }, { v: '5', s: '♣', red: false }, { v: '6', s: '♣', red: false }, { v: '7', s: '♣', red: false }, { v: '8', s: '♣', red: false }], options: ['Flush', 'Sequência', 'Straight Flush', 'Royal Flush'], answer: 2 },
-      { cards: [{ v: '10', s: '♥', red: true }, { v: '10', s: '♦', red: true }, { v: '10', s: '♠', red: false }, { v: 'A', s: '♣', red: false }, { v: 'A', s: '♠', red: false }], options: ['Trinca', 'Full House', 'Quadra', 'Dois Pares'], answer: 1 },
-      { cards: [{ v: 'A', s: '♥', red: true }, { v: '10', s: '♥', red: true }, { v: '7', s: '♥', red: true }, { v: '4', s: '♥', red: true }, { v: '2', s: '♥', red: true }], options: ['Flush', 'Sequência', 'Straight Flush', 'Carta Alta'], answer: 0 },
-      { cards: [{ v: 'J', s: '♠', red: false }, { v: 'J', s: '♥', red: true }, { v: 'J', s: '♣', red: false }, { v: 'J', s: '♦', red: true }, { v: '5', s: '♠', red: false }], options: ['Full House', 'Quadra', 'Trinca', 'Flush'], answer: 1 },
-      { cards: [{ v: '10', s: '♠', red: false }, { v: 'J', s: '♦', red: true }, { v: 'Q', s: '♣', red: false }, { v: 'K', s: '♥', red: true }, { v: 'A', s: '♠', red: false }], options: ['Sequência', 'Straight Flush', 'Royal Flush', 'Flush'], answer: 0 },
-      { cards: [{ v: '7', s: '♠', red: false }, { v: '7', s: '♥', red: true }, { v: '2', s: '♣', red: false }, { v: '2', s: '♦', red: true }, { v: 'K', s: '♠', red: false }], options: ['Par', 'Dois Pares', 'Trinca', 'Full House'], answer: 1 },
-      { cards: [{ v: '4', s: '♠', red: false }, { v: '4', s: '♥', red: true }, { v: '4', s: '♣', red: false }, { v: 'A', s: '♦', red: true }, { v: '9', s: '♠', red: false }], options: ['Par', 'Trinca', 'Quadra', 'Full House'], answer: 1 },
-      { cards: [{ v: 'A', s: '♠', red: false }, { v: 'A', s: '♥', red: true }, { v: 'A', s: '♣', red: false }, { v: 'K', s: '♦', red: true }, { v: 'K', s: '♠', red: false }], options: ['Trinca', 'Full House', 'Dois Pares', 'Quadra'], answer: 1 },
-      { cards: [{ v: 'Q', s: '♣', red: false }, { v: '9', s: '♣', red: false }, { v: '7', s: '♣', red: false }, { v: '4', s: '♣', red: false }, { v: '2', s: '♣', red: false }], options: ['Flush', 'Sequência', 'Straight Flush', 'Royal Flush'], answer: 0 },
-      { cards: [{ v: '10', s: '♠', red: false }, { v: '10', s: '♥', red: true }, { v: 'K', s: '♣', red: false }, { v: 'Q', s: '♦', red: true }, { v: '5', s: '♠', red: false }], options: ['Carta Alta', 'Par', 'Dois Pares', 'Trinca'], answer: 1 },
-      { cards: [{ v: '9', s: '♥', red: true }, { v: '8', s: '♥', red: true }, { v: '7', s: '♥', red: true }, { v: '6', s: '♥', red: true }, { v: '5', s: '♥', red: true }], options: ['Flush', 'Sequência', 'Straight Flush', 'Royal Flush'], answer: 2 }
-    ];
-
-    // Shuffle function
-    function shuffle(array) {
-      for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-      }
-      return array;
-    }
-
-    // Select 6 random questions
-    const quizQuestions = shuffle([...allQuestions]).slice(0, 6);
-    let currentQ = 0, score = 0, answered = false;
-
-    function renderQuiz() {
-      const q = quizQuestions[currentQ],
-        handEl = document.getElementById('quiz-hand'),
-        optsEl = document.getElementById('quiz-options'),
-        fbEl = document.getElementById('quiz-feedback'),
-        scoreEl = document.getElementById('quiz-score'),
-        nextBtn = document.getElementById('quiz-next'),
-        counterEl = document.getElementById('quiz-counter');
-
-      answered = false;
-      fbEl.textContent = '';
-      nextBtn.style.display = 'none';
-      counterEl.textContent = `Pergunta ${currentQ + 1} de ${quizQuestions.length}`;
-      scoreEl.textContent = `Acertos: ${score} / ${quizQuestions.length}`;
-
-      handEl.innerHTML = q.cards.map(c => `<div class="mini-card ${c.red ? 'red' : ''}"><span class="val">${c.v}</span><span class="suit">${c.s}</span></div>`).join('');
-      optsEl.innerHTML = q.options.map((o, i) => `<button class="quiz-opt" data-idx="${i}">${o}</button>`).join('');
-
-      optsEl.querySelectorAll('.quiz-opt').forEach(btn => {
-        btn.addEventListener('click', () => {
-          if (answered) return;
-          answered = true;
-          const idx = parseInt(btn.dataset.idx);
-          if (idx === q.answer) {
-            btn.classList.add('correct');
-            fbEl.textContent = '✅ Correto! Muito bem!';
-            fbEl.style.color = '#2ecc71';
-            score++
-          } else {
-            btn.classList.add('wrong');
-            optsEl.children[q.answer].classList.add('correct');
-            fbEl.textContent = '❌ Errado! A resposta certa está destacada.';
-            fbEl.style.color = '#e63946'
-          }
-          scoreEl.textContent = `Acertos: ${score} / ${quizQuestions.length}`;
-
-          if (currentQ < quizQuestions.length - 1) {
-            nextBtn.style.display = 'inline-flex'
-          } else {
-            setTimeout(() => {
-              fbEl.textContent += ` — Resultado final: ${score}/${quizQuestions.length}!`
-            }, 600)
-          }
-        })
-      })
-    }
-
-    document.getElementById('quiz-next').addEventListener('click', () => {
-      currentQ++;
-      renderQuiz()
-    });
-
-    renderQuiz();
-
-    // Smooth Scroll
-    document.querySelectorAll('a[href^="#"]').forEach(a => {
-      a.addEventListener('click', e => {
-        e.preventDefault();
-        const target = document.querySelector(a.getAttribute('href'));
-        if (target) target.scrollIntoView({ behavior: 'smooth' })
-      })
-    });
-  </script>
 </body>
+
 </html>
