@@ -1,0 +1,4734 @@
+// Global error handler for debugging
+window.addEventListener('error', (event) => {
+    console.error('Global script error:', {
+        message: event.message,
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno,
+        error: event.error?.stack
+    });
+});
+
+// Check for Firebase availability
+console.log('Checking Firebase dependencies...');
+const firebaseAvailable = typeof window.firebase !== 'undefined';
+const dbAvailable = typeof window.db !== 'undefined';
+const dbInstance = dbAvailable ? window.db : null;
+const db = dbAvailable ? window.db : null;
+if (!firebaseAvailable) {
+    console.error('Firebase SDK not loaded - check CDN connection');
+}
+if (!dbAvailable) {
+    console.warn('Firestore db is not available. The app will run in local-only mode.');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('Script iniciando...', {
+        docReady: document.readyState,
+        location: window.location.href,
+        hasFirebase: firebaseAvailable,
+        hasDb: dbAvailable
+    });
+    // Global Master Reset (One-time for all users)
+    if (!localStorage.getItem('moura_leite_master_reset_v2')) {
+        let allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        
+        // Ensure Admin exists in the global list
+        if (!allUsers.find(u => u.email === 'admin@mouraleite.com.br')) {
+            allUsers.push({
+                username: 'ADMIN',
+                email: 'admin@mouraleite.com.br',
+                points: 1500,
+                dept: 'Tecnologia',
+                rank: 'Consultor Ouro',
+                password: 'admin'
+            });
+        }
+
+        allUsers.forEach(user => {
+            if (user.email !== 'admin@mouraleite.com.br') {
+                user.points = 0;
+                user.history = [];
+                user.lastCheckIn = null;
+                user.lastLunchWeek = null;
+                user.lastReuniaoWeek = null;
+                user.lastGamesWeek = null;
+                user.lastLinkedInMonth = null;
+                user.lastVivaEngageMonth = null;
+                user.lunchCount = 0;
+                user.linkedInCount = 0;
+                user.vivaEngageCount = 0;
+                user.streak = 1;
+                user.visitCount = 1;
+            }
+        });
+        localStorage.setItem('moura_leite_all_users', JSON.stringify(allUsers));
+        localStorage.setItem('moura_leite_global_history', JSON.stringify([]));
+        
+        // Update current session if not admin
+        let sessionUser = JSON.parse(localStorage.getItem('moura_leite_user'));
+        if (sessionUser && sessionUser.email !== 'admin@mouraleite.com.br') {
+            sessionUser.points = 0;
+            sessionUser.history = [];
+            sessionUser.lastCheckIn = null;
+            sessionUser.lastLunchWeek = null;
+            sessionUser.lastReuniaoWeek = null;
+            sessionUser.lastGamesWeek = null;
+            sessionUser.lastLinkedInMonth = null;
+            sessionUser.lastVivaEngageMonth = null;
+            sessionUser.lunchCount = 0;
+            sessionUser.linkedInCount = 0;
+            sessionUser.vivaEngageCount = 0;
+            localStorage.setItem('moura_leite_user', JSON.stringify(sessionUser));
+        }
+        
+        localStorage.setItem('moura_leite_master_reset_v2', 'true');
+        window.location.reload();
+    }
+
+    // Server Time Validation (Anti-cheat: prevent Windows date manipulation)
+    let serverTimeOffset = 0;
+    let serverTimeLastSync = Date.now();
+
+    const syncServerTime = async () => {
+        // Obsolete: Relying on Date.now()
+        serverTimeOffset = 0;
+        serverTimeLastSync = Date.now();
+    };
+
+    const getServerTime = () => {
+        return Date.now();
+    };
+
+    const logMissionAttempt = async (userId, missionId, missionName, success, timestamp) => {
+        if (!dbAvailable) {
+            console.warn('Skipping mission log because Firestore is unavailable.');
+            return;
+        }
+
+        try {
+            const logsRef = db.collection('mission_logs').doc();
+            await logsRef.set({
+                userId,
+                missionId,
+                missionName,
+                success,
+                clientTime: new Date(timestamp),
+                serverTime: firebase.firestore.FieldValue.serverTimestamp(),
+                userAgent: navigator.userAgent
+            });
+        } catch (e) {
+            console.error('Error logging mission attempt:', e);
+        }
+    };
+
+    // Initial sync on page load
+    syncServerTime();
+
+    // Resync every 10 minutes
+    setInterval(syncServerTime, 600000);
+
+    // Load User Data from LocalStorage (Current Session)
+    const storedUser = JSON.parse(localStorage.getItem('moura_leite_user')) || {
+        username: 'Novo Colaborador',
+        points: 0,
+        rank: 'Iniciante',
+        dept: 'Moura Leite'
+    };
+
+    // Firebase Real-time Synchronization for Global Users
+    if (dbAvailable) {
+        db.collection("users").onSnapshot((snapshot) => {
+            const usersArray = [];
+            snapshot.forEach((doc) => {
+                // BUG FIX: Use document ID as fallback for the 'email' field.
+                // If a user document was saved without the 'email' field inside it,
+                // the find() below would fail to locate them, breaking point sync.
+                const data = doc.data();
+                if (!data.email) data.email = doc.id;
+                usersArray.push(data);
+            });
+            
+            // Strip large base64 photos to prevent localStorage quota issues from legacy data
+            const cleanUsersArray = usersArray.map(u => {
+                const cleanU = { ...u };
+                if (cleanU.history && Array.isArray(cleanU.history)) {
+                    cleanU.history = cleanU.history.map(tx => {
+                        if (tx.photo && typeof tx.photo === 'string' && tx.photo.length > 500) {
+                            return { ...tx, photo: '[EVIDENCIA_SALVA]', hasPhoto: true };
+                        }
+                        return tx;
+                    });
+                }
+                return cleanU;
+            });
+
+            // Update local global list
+            try {
+                localStorage.setItem('moura_leite_all_users', JSON.stringify(cleanUsersArray));
+            } catch (storageErr) {
+                console.warn('Não foi possível salvar all_users no localStorage (limite excedido?).', storageErr);
+            }
+
+            // FIREBASE É A FONTE DA VERDADE: Sempre sincroniza dados do servidor para o local
+            if (storedUser && storedUser.email) {
+                const currentUserInDb = usersArray.find(u => u.email === storedUser.email);
+                if (currentUserInDb) {
+                    let needsUpdate = false;
+                    
+                    // Sync points
+                    const serverPoints = parseInt(currentUserInDb.points) || 0;
+                    if (serverPoints !== userPoints) {
+                        console.log(`🔄 Sincronizando pontos do servidor: Local(${userPoints}) → Server(${serverPoints})`);
+                        userPoints = serverPoints;
+                        needsUpdate = true;
+                    }
+                    
+                    // CRITICAL FIX: Sync all completion flags, history, and profile data so local state matches server
+                    Object.keys(currentUserInDb).forEach(key => {
+                        // BUG FIX: Exclude 'rank' from Firebase sync.
+                        // The rank is always recalculated locally from spent points in updateUIWithUser().
+                        // Syncing it from Firebase caused stale/wrong ranks (e.g., showing 'Platina'
+                        // for a user just reaching 'Bronze') and broke the level-up social wall detection.
+                        if (key.startsWith('last') || key === 'history' || key.endsWith('Count') || key === 'streak' || ['username', 'dept', 'diretoria', 'disabled'].includes(key)) {
+                            // Only update if stringified values differ to avoid deep comparison complexity
+                            if (JSON.stringify(storedUser[key]) !== JSON.stringify(currentUserInDb[key])) {
+                                storedUser[key] = currentUserInDb[key];
+                                needsUpdate = true;
+                            }
+                        }
+                    });
+
+                    // RESET FIX: If a 'last*' cooldown field was deleted from Firestore
+                    // (e.g., by adminResetMission), remove it from localStorage too.
+                    // Without this, the mission keeps showing as "Concluído" even after admin reset.
+                    Object.keys(storedUser).forEach(key => {
+                        if ((key.startsWith('last') || key.startsWith('lastCustom')) && key !== 'lastVisit' && !(key in currentUserInDb)) {
+                            delete storedUser[key];
+                            needsUpdate = true;
+                        }
+                    });
+
+                    if (needsUpdate) {
+                        storedUser.points = userPoints;
+                        localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+                        if (typeof updatePointsDisplay === 'function') updatePointsDisplay();
+                        if (typeof renderCustomMissions === 'function') renderCustomMissions();
+                        // ROOT CAUSE FIX: Update the hero panel (name, rank, progress bar) after
+                        // Firebase sync. Previously, if the username/rank came from Firebase AFTER
+                        // the initial render, the hero h1 and subtitle kept the stale HTML placeholder.
+                        if (typeof updateUIWithUser === 'function') updateUIWithUser();
+                    }
+                }
+            }
+            
+            // Re-render UI components that depend on global data
+            if (typeof updateRanking === 'function') updateRanking();
+            if (typeof renderAdminUsers === 'function') renderAdminUsers();
+        });
+    } else {
+        console.warn('Skipping Firestore user sync because db is unavailable.');
+    }
+
+    // Visit Tracking & Date Helpers (Now using server-synced time)
+    const now = new Date(getServerTime());
+    const todayStr = now.toDateString();
+    const currentMonth = (now.getMonth() + 1) + '-' + now.getFullYear();
+    
+    const getWeekNumber = (date) => {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+        return Math.ceil((((d - yearStart) / 86400000) + 1)/7) + '-' + d.getUTCFullYear();
+    };
+    const currentWeek = getWeekNumber(now);
+
+    // Migration/Reset Fix: Force Alex to 0 if he has legacy points (One-time)
+    if (storedUser.email === 'alex.landuci@mouraleite.com.br' && !storedUser.legacyReset) {
+        storedUser.username = 'Alexsanderson Landuci'; // Force correct name
+        storedUser.dept = 'RH';
+        storedUser.diretoria = 'Financeira';
+        if (storedUser.points === 2450 || storedUser.points === 800) {
+            storedUser.points = 0;
+            // Sync with global list
+            const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+            const idx = allUsers.findIndex(u => u.email === storedUser.email);
+            if (idx !== -1) {
+                allUsers[idx].username = 'Alexsanderson Landuci';
+                allUsers[idx].points = 0;
+                localStorage.setItem('moura_leite_all_users', JSON.stringify(allUsers));
+            }
+        }
+        storedUser.legacyReset = true;
+        localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+    }
+
+    // Force Admin name
+    if (storedUser.email === 'admin@mouraleite.com.br') {
+        storedUser.username = 'ADMIN';
+    }
+
+    const isAdmin = storedUser.email === 'admin@mouraleite.com.br';
+    const adminMenuItem = document.getElementById('admin-menu-item');
+    const adminMissionsMenuItem = document.getElementById('admin-missions-menu-item');
+    const adminPrizesMenuItem = document.getElementById('admin-prizes-menu-item');
+    if (isAdmin && adminMenuItem) {
+        adminMenuItem.classList.remove('hidden');
+    }
+    if (isAdmin && adminMissionsMenuItem) {
+        adminMissionsMenuItem.classList.remove('hidden');
+    }
+    if (isAdmin && adminPrizesMenuItem) {
+        adminPrizesMenuItem.classList.remove('hidden');
+    }
+
+    // Admin User Management Logic
+    const renderAdminUsers = () => {
+        const body = document.getElementById('admin-users-body');
+        if (!body) return;
+
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        
+        body.innerHTML = allUsers.map(user => {
+            const statusLabel = user.disabled ? 'Inativo' : 'Ativo';
+            const statusClass = user.disabled ? 'status-locked' : 'status-unlocked';
+            
+            return `
+                <tr>
+                    <td><strong>${user.username}</strong></td>
+                    <td>${user.email}</td>
+                    <td>${user.dept || '-'}</td>
+                    <td>${user.diretoria ? (user.diretoria.replace(/^diretoria-/i, '').charAt(0).toUpperCase() + user.diretoria.replace(/^diretoria-/i, '').slice(1)) : '-'}</td>
+                    <td>${user.points} ML Coins</td>
+                    <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
+                    <td>
+                        <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                            <button onclick="viewUserHistory('${user.email}', '${user.username}')" class="btn-buy" style="padding:4px 8px; font-size:10px; background:#006837;">📋 Histórico</button>
+                            <button onclick="editUser('${user.email}')" class="btn-buy" style="padding:4px 8px; font-size:10px;">Editar</button>
+                            <button onclick="resetUserPassword('${user.email}')" class="btn-buy" style="padding:4px 8px; font-size:10px; background:#f39c12;">Resetar Senha</button>
+                            <button onclick="toggleUserStatus('${user.email}')" class="btn-buy" style="padding:4px 8px; font-size:10px; background:#666;">${user.disabled ? 'Ativar' : 'Desativar'}</button>
+                            ${user.email !== 'admin@mouraleite.com.br' ? `
+                            <button onclick="(function(){ var m=prompt('ID da missão para resetar o cooldown:\\n\\nsys_lunch = Café de Integração\\nsys_reuniao = Reunião de Integração\\nsys_jogos = Dinâmica de Jogos\\nsys_checkin = Check-in Diário\\nsys_embaixador = Embaixador Digital\\nsys_vivaengage = Viva Engage\\n\\n(ou o ID de uma missão personalizada)'); if(m && m.trim()) adminResetMission('${user.email}', m.trim()); })()" class="btn-buy" style="padding:4px 8px; font-size:10px; background:#1976d2;">Resetar Missão</button>
+                            <button onclick="deleteUser('${user.email}')" class="btn-buy" style="padding:4px 8px; font-size:10px; background:#d32f2f;">Excluir</button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    };
+
+    // User History Modal: filter state and cached data
+    let userHistoryModalData = [];
+    let userHistoryModalFilter = 'all';
+
+    // Helper: detect transaction types (reuse from history page)
+    const _isModalPrize   = (tx) => /\(-\d+\s*(?:pts|ML Coins|Moura Coins)\)/i.test(tx.item || '');
+    const _isModalMission = (tx) => /\(\+\d+\s*(?:pts|ML Coins|Moura Coins)\)/i.test(tx.item || '');
+
+    const _renderUserHistoryModalTable = (body) => {
+        if (!body) return;
+
+        let data = userHistoryModalData;
+        if (userHistoryModalFilter === 'missions') {
+            data = data.filter(_isModalMission);
+        } else if (userHistoryModalFilter === 'prizes') {
+            data = data.filter(_isModalPrize);
+        }
+
+        if (data.length === 0) {
+            const emptyMsg = userHistoryModalFilter === 'prizes'
+                ? 'Nenhum resgate de prêmio encontrado.'
+                : userHistoryModalFilter === 'missions'
+                    ? 'Nenhuma missão encontrada no histórico.'
+                    : 'Nenhum registro encontrado.';
+            body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:2rem;color:#999;">${emptyMsg}</td></tr>`;
+            return;
+        }
+
+        body.innerHTML = data.map(tx => {
+            const earnedMatch = (tx.item || '').match(/\(\+(\d+)\s*(?:pts|ML Coins|Moura Coins)\)/);
+            const spentMatch  = (tx.item || '').match(/\(-(\d+)\s*(?:pts|ML Coins|Moura Coins)\)/);
+            const isRejected  = tx.status === 'Recusado' || tx.status === 'Cancelado';
+
+            let ptsDisplay = '-';
+            if (isRejected) {
+                ptsDisplay = `<span style="color:#f44336;text-decoration:line-through;">Recusado</span>`;
+            } else if (earnedMatch) {
+                ptsDisplay = `<span style="color:#4caf50;font-weight:700;">+${earnedMatch[1]} ML Coins</span>`;
+            } else if (spentMatch) {
+                ptsDisplay = `<span style="color:#e53935;font-weight:700;">-${spentMatch[1]} ML Coins</span>`;
+            }
+
+            const statusColors = {
+                'Concluído': '#4caf50', 'Validando': '#ff9800',
+                'Recusado': '#f44336', 'Cancelado': '#9e9e9e', 'Ativo': '#2196f3'
+            };
+            const sColor = statusColors[tx.status] || '#999';
+
+            return `<tr>
+                <td>${tx.date || '—'}</td>
+                <td>${tx.time || '—'}</td>
+                <td>${(tx.item || '—').replace(/pts|Moura Coins/gi, 'ML Coins')}</td>
+                <td style="text-align:center;">${ptsDisplay}</td>
+                <td>
+                    <span class="status-badge" style="background:${sColor}20;color:${sColor};border:1px solid ${sColor}40;">${tx.status || '—'}</span>
+                    ${tx.rejectReason ? `<div style="font-size: 11px; color: #f44336; margin-top: 4px; line-height: 1.2;">Motivo: ${tx.rejectReason}</div>` : ''}
+                </td>
+            </tr>`;
+        }).join('');
+    };
+
+    window.viewUserHistory = async (email, username) => {
+        const modal = document.getElementById('user-history-modal');
+        const body = document.getElementById('user-history-modal-body');
+        const title = document.getElementById('user-history-modal-title');
+        const subtitle = document.getElementById('user-history-modal-subtitle');
+        const summary = document.getElementById('user-history-summary');
+
+        if (!modal) return;
+
+        // Reset filter state
+        userHistoryModalFilter = 'all';
+        userHistoryModalData = [];
+        const filterBar = document.getElementById('user-history-filter-bar');
+        if (filterBar) {
+            filterBar.querySelectorAll('.history-filter-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.filter === 'all');
+            });
+        }
+
+        title.textContent = `📋 Histórico de Pontos — ${username}`;
+        subtitle.textContent = email;
+        body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:2rem;color:#999;"><i class="fa-solid fa-spinner fa-spin"></i> Carregando dados do Firebase...</td></tr>';
+        summary.innerHTML = '';
+        modal.classList.remove('hidden');
+
+        try {
+            const doc = await db.collection('users').doc(email).get({ source: 'server' });
+            if (!doc.exists) {
+                body.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:2rem;color:#f44336;">Usuário não encontrado no Firebase.</td></tr>';
+                return;
+            }
+
+            const userData = doc.data();
+            const history = userData.history || [];
+
+            // Sort newest first and store for filtering
+            const sorted = [...history].sort((a, b) => (b.serverTime || 0) - (a.serverTime || 0));
+            userHistoryModalData = sorted;
+
+            // Calculate totals (always based on full data, not filtered)
+            let totalEarned = 0;
+            let totalSpent = 0;
+            let missionCount = 0;
+            let prizeCount = 0;
+
+            sorted.forEach(tx => {
+                const earnedMatch = (tx.item || '').match(/\(\+(\d+)\s*(?:pts|ML Coins|Moura Coins)\)/);
+                const spentMatch  = (tx.item || '').match(/\(-(\d+)\s*(?:pts|ML Coins|Moura Coins)\)/);
+                if (tx.status === 'Recusado' || tx.status === 'Cancelado') return;
+                if (earnedMatch) { totalEarned += parseInt(earnedMatch[1]); missionCount++; }
+                else if (spentMatch) { totalSpent += parseInt(spentMatch[1]); prizeCount++; }
+            });
+
+            // Summary pills
+            summary.innerHTML = `
+                <div style="background:#e8f5e9;color:#1b5e20;padding:8px 16px;border-radius:20px;font-size:0.85rem;font-weight:600;">
+                    ✅ Ganhou: +${totalEarned} ML Coins
+                </div>
+                <div style="background:#fce4ec;color:#880e4f;padding:8px 16px;border-radius:20px;font-size:0.85rem;font-weight:600;">
+                    🛒 Gastou: -${totalSpent} ML Coins
+                </div>
+                <div style="background:#e3f2fd;color:#0d47a1;padding:8px 16px;border-radius:20px;font-size:0.85rem;font-weight:600;">
+                    💰 Saldo Calculado: ${totalEarned - totalSpent} ML Coins
+                </div>
+                <div style="background:#f3e5f5;color:#4a148c;padding:8px 16px;border-radius:20px;font-size:0.85rem;font-weight:600;">
+                    📊 Total: ${sorted.length} (${missionCount} missões, ${prizeCount} resgates)
+                </div>
+            `;
+
+            // Render table with current filter
+            _renderUserHistoryModalTable(body);
+
+        } catch (err) {
+            console.error('Erro ao carregar histórico do usuário:', err);
+            body.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:2rem;color:#f44336;">Erro ao carregar dados: ${err.message}</td></tr>`;
+        }
+    };
+
+    // Close user history modal
+    const closeUserHistoryBtn = document.getElementById('close-user-history');
+    const userHistoryModal = document.getElementById('user-history-modal');
+    if (closeUserHistoryBtn) {
+        closeUserHistoryBtn.addEventListener('click', () => userHistoryModal.classList.add('hidden'));
+    }
+    if (userHistoryModal) {
+        userHistoryModal.addEventListener('click', (e) => {
+            if (e.target === userHistoryModal) userHistoryModal.classList.add('hidden');
+        });
+    }
+
+    // User History Modal: Filter button listeners
+    const userHistoryFilterBar = document.getElementById('user-history-filter-bar');
+    if (userHistoryFilterBar) {
+        userHistoryFilterBar.addEventListener('click', (e) => {
+            const btn = e.target.closest('.history-filter-btn');
+            if (!btn) return;
+            const newFilter = btn.dataset.filter;
+            if (newFilter === userHistoryModalFilter) return;
+
+            userHistoryModalFilter = newFilter;
+
+            userHistoryFilterBar.querySelectorAll('.history-filter-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.filter === userHistoryModalFilter);
+            });
+
+            const body = document.getElementById('user-history-modal-body');
+            _renderUserHistoryModalTable(body);
+        });
+    }
+
+    const getIconClass = (iconName) => {
+        if (!iconName) return 'fa-solid fa-bullseye';
+        if (iconName === 'svg-cap') return 'svg-cap'; // special SVG icon
+        if (iconName === 'svg-capsule') return 'svg-capsule'; // special SVG icon
+        if (iconName === 'svg-ticket') return 'svg-ticket'; // special SVG icon
+        if (iconName === 'svg-voucher') return 'svg-voucher'; // special SVG icon
+        if (iconName === 'svg-ticket-premio') return 'svg-ticket-premio'; // special SVG icon
+        if (iconName === 'svg-lampada') return 'svg-lampada'; // special SVG icon
+        if (iconName === 'svg-lampada-badge') return 'svg-lampada-badge'; // special SVG icon
+        if (iconName === 'svg-lampada-flat') return 'svg-lampada-flat'; // special SVG icon
+        if (iconName === 'svg-lampada-check') return 'svg-lampada-check'; // special SVG icon
+        if (iconName.startsWith('fa-')) {
+            // Check if it already has a style prefix (solid, brands, regular)
+            if (iconName.startsWith('fa-solid ') || iconName.startsWith('fa-brands ') || iconName.startsWith('fa-regular ') || iconName.startsWith('fa-light ') || iconName.startsWith('fa-thin ')) {
+                return iconName;
+            }
+            // Check for brand icons that need fa-brands
+            const brands = ['linkedin', 'facebook', 'instagram', 'twitter', 'whatsapp', 'github', 'youtube', 'viva-engage', 'microsoft', 'google', 'apple'];
+            if (brands.some(brand => iconName.includes(brand))) {
+                return `fa-brands ${iconName}`;
+            }
+            // Default to fa-solid
+            return `fa-solid ${iconName}`;
+        }
+        return iconName;
+    };
+
+    // Returns full HTML for an icon (supports custom SVGs)
+    const getIconHTML = (iconName, color) => {
+        if (iconName === 'svg-cap') {
+            const c = color || '#006837';
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit;">
+                <path d="M50 18 C30 18 16 32 14 50 L14 58 C14 60 15 62 17 62 L83 62 C85 62 86 60 86 58 L86 50 C84 32 70 18 50 18 Z" fill="${c}" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>
+                <path d="M14 56 C14 56 8 58 4 62 C2 64 1 67 3 69 C5 71 10 72 14 70 C18 68 28 64 38 62 L14 62 Z" fill="${c}" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>
+                <line x1="14" y1="56" x2="86" y2="56" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+                <circle cx="50" cy="18" r="3" fill="${c}" stroke="${c}" stroke-width="1"/>
+            </svg>`;
+        }
+        if (iconName === 'svg-capsule' || iconName === 'svg-capsule-5' || iconName === 'svg-capsule-10' || iconName === 'svg-capsule-box') {
+            const makeCap = (x, y, scale, color) => `
+                <g transform="translate(${x}, ${y}) scale(${scale})">
+                    <path d="M -12 -4 L -9 15 C -8 24, 8 24, 9 15 L 12 -4 Z" fill="${color}" />
+                    <rect x="-15" y="-10" width="30" height="6" rx="2" fill="#8A6046" />
+                    <line x1="-10.5" y1="12" x2="10.5" y2="12" />
+                    <line x1="-6" y1="0" x2="-4" y2="10" stroke="#FFFFFF" stroke-width="2" opacity="0.5" />
+                    <line x1="-10" y1="-7" x2="-2" y2="-7" stroke="#FFFFFF" stroke-width="2" opacity="0.5" />
+                </g>`;
+            const beanBadge = (y) => `
+                <g transform="translate(50, ${y}) scale(1.2)">
+                    <circle cx="0" cy="0" r="16" fill="#FFFFFF" />
+                    <g transform="rotate(-30)">
+                        <ellipse cx="0" cy="0" rx="7" ry="10" fill="#8A6046" />
+                        <path d="M -2 -6 C 2 -4, 2 0, 0 2 C -2 4, -2 8, 2 10" fill="none" stroke="#1A1A1A" stroke-width="2.5" />
+                    </g>
+                </g>`;
+
+            let contents = '';
+            let strokeW = 3.5;
+
+            if (iconName === 'svg-capsule') {
+                contents = makeCap(25, 40, 1.1, '#8CB4F5') +
+                           makeCap(75, 40, 1.1, '#C2E88D') +
+                           makeCap(50, 36, 1.25, '#E36262') +
+                           beanBadge(72);
+            } else if (iconName === 'svg-capsule-5') {
+                contents = makeCap(20, 36, 0.9, '#F2A65A') +
+                           makeCap(80, 36, 0.9, '#B39DDB') +
+                           makeCap(35, 41, 1.0, '#8CB4F5') +
+                           makeCap(65, 41, 1.0, '#C2E88D') +
+                           makeCap(50, 46, 1.15, '#E36262') +
+                           beanBadge(76);
+            } else if (iconName === 'svg-capsule-10') {
+                strokeW = 3.0; // Slightly thinner stroke for crowded pile
+                contents = makeCap(25, 25, 0.7, '#4DD0E1') +
+                           makeCap(42, 25, 0.7, '#FFF176') +
+                           makeCap(58, 25, 0.7, '#F06292') +
+                           makeCap(75, 25, 0.7, '#AED581') +
+                           makeCap(30, 35, 0.85, '#FFB74D') +
+                           makeCap(50, 35, 0.85, '#90A4AE') +
+                           makeCap(70, 35, 0.85, '#4DB6AC') +
+                           makeCap(38, 48, 1.0, '#8CB4F5') +
+                           makeCap(62, 48, 1.0, '#C2E88D') +
+                           makeCap(50, 60, 1.15, '#E36262') +
+                           beanBadge(85);
+            } else if (iconName === 'svg-capsule-box') {
+                const cColor = color || '#006837';
+                contents = `
+                    <!-- Right Face (Darker) -->
+                    <polygon points="65,45 85,35 85,65 65,75" fill="${cColor}" />
+                    <polygon points="65,45 85,35 85,65 65,75" fill="#000000" opacity="0.25" stroke="none" />
+
+                    <!-- Top Face -->
+                    <polygon points="45,35 65,25 85,35 65,45" fill="${cColor}" />
+                    <polygon points="45,35 65,25 85,35 65,45" fill="#FFFFFF" opacity="0.3" stroke="none" />
+
+                    <!-- Left Face (Front) -->
+                    <polygon points="45,35 65,45 65,75 45,65" fill="${cColor}" />
+                    <polygon points="45,35 65,45 65,75 45,65" fill="#000000" opacity="0.05" stroke="none" />
+                    
+                    <!-- Left Face Decorations (Logo) -->
+                    <g stroke="none">
+                        <g transform="translate(55, 60) scale(0.6)">
+                            <path d="M -12 -4 L -9 15 C -8 24, 8 24, 9 15 L 12 -4 Z" fill="#FFFFFF" opacity="0.7" />
+                            <rect x="-15" y="-10" width="30" height="6" rx="2" fill="#FFFFFF" opacity="0.7" />
+                        </g>
+                    </g>
+
+                    <!-- Loose capsules sitting in front of the box -->
+                    ${makeCap(32, 75, 0.9, '#F06292')}
+                    ${makeCap(48, 85, 1.1, '#FFB74D')}
+                `;
+            }
+
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit;">
+                <g stroke="#1A1A1A" stroke-width="${strokeW}" stroke-linecap="round" stroke-linejoin="round">
+                    ${contents}
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-capsule-flat') {
+            const c = color || '#006837';
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit;">
+                <path d="M 12 18 L 88 18 A 6 6 0 0 1 94 24 L 94 28 A 6 6 0 0 1 88 34 L 12 34 A 6 6 0 0 1 6 28 L 6 24 A 6 6 0 0 1 12 18 Z" fill="${c}" />
+                <path d="M 22 38 L 32 85 C 33 93, 40 98, 50 98 C 60 98, 67 93, 68 85 L 78 38 Z
+                         M 50 47 C 59 47, 62 55, 62 65 C 62 75, 59 83, 50 83 C 41 83, 38 75, 38 65 C 38 55, 41 47, 50 47 Z" fill="${c}" fill-rule="evenodd" />
+                <path d="M 48 52 C 54 52, 54 60, 50 65 C 46 70, 46 78, 52 78" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round" />
+            </svg>`;
+        }
+        if (iconName === 'svg-capsule-3d') {
+            const c = color || '#006837';
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 8px 10px rgba(0,0,0,0.25));">
+                <defs>
+                    <linearGradient id="coffeeShine_${c.replace('#','')}" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#000000" stop-opacity="0.5" />
+                        <stop offset="20%" stop-color="#ffffff" stop-opacity="0.9" />
+                        <stop offset="40%" stop-color="#ffffff" stop-opacity="0.1" />
+                        <stop offset="75%" stop-color="#000000" stop-opacity="0.7" />
+                        <stop offset="90%" stop-color="#ffffff" stop-opacity="0.4" />
+                        <stop offset="100%" stop-color="#000000" stop-opacity="0.6" />
+                    </linearGradient>
+                    <linearGradient id="foilLid_${c.replace('#','')}" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#f0f0f0" />
+                        <stop offset="50%" stop-color="#ffffff" />
+                        <stop offset="100%" stop-color="#a0a0a0" />
+                    </linearGradient>
+                </defs>
+                <g transform="rotate(-15 50 50) translate(0, 5)">
+                    <path d="M22 25 L32 78 C 32 92, 68 92, 68 78 L78 25 Z" fill="${c}" />
+                    <path d="M22 25 L32 78 C 32 92, 68 92, 68 78 L78 25 Z" fill="url(#coffeeShine_${c.replace('#','')})" />
+                    <ellipse cx="50" cy="25" rx="38" ry="10" fill="${c}" />
+                    <ellipse cx="50" cy="25" rx="38" ry="10" fill="url(#coffeeShine_${c.replace('#','')})" />
+                    <ellipse cx="50" cy="25" rx="34" ry="8" fill="url(#foilLid_${c.replace('#','')})" />
+                    <ellipse cx="50" cy="25" rx="26" ry="6" fill="none" stroke="#cccccc" stroke-width="1.5" />
+                    <ellipse cx="50" cy="25" rx="18" ry="4" fill="none" stroke="#ffffff" stroke-width="2" />
+                    <ellipse cx="50" cy="25" rx="10" ry="2" fill="none" stroke="#aaaaaa" stroke-width="1" />
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-capsule-outline') {
+            const c = color || '#006837';
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit;">
+                <path d="M 12 18 L 88 18 A 6 6 0 0 1 94 24 L 94 28 A 6 6 0 0 1 88 34 L 12 34 A 6 6 0 0 1 6 28 L 6 24 A 6 6 0 0 1 12 18 Z" fill="none" stroke="${c}" stroke-width="5" stroke-linejoin="round" />
+                <path d="M 22 34 L 32 85 C 33 93, 40 98, 50 98 C 60 98, 67 93, 68 85 L 78 34" fill="none" stroke="${c}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+                <ellipse cx="50" cy="62" rx="12" ry="18" fill="none" stroke="${c}" stroke-width="5" />
+                <path d="M 48 50 C 55 50, 55 60, 50 62 C 45 64, 45 74, 52 74" fill="none" stroke="${c}" stroke-width="4" stroke-linecap="round" />
+            </svg>`;
+        }
+        if (iconName === 'svg-choco') {
+            // Fully hardcoded chocolate palette — no color param needed, just like the capsule icons
+            // Main bar:    #7B4A2D (milk chocolate)
+            // Segments:    #5C3317 (dark chocolate grooves)
+            // Broken piece: #A0623A (lighter, catching the light)
+            // Wrapper foil: #D4A96A (gold/cream wrapper strip at top)
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.35));">
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+
+                    <!-- Main bar (tilted -8deg for dynamism) -->
+                    <g transform="rotate(-8, 46, 55)">
+
+                        <!-- Golden wrapper strip at top of bar -->
+                        <rect x="10" y="25" width="72" height="8" rx="3" ry="3"
+                              fill="#D4A96A" stroke="#1A1A1A" stroke-width="2.5" />
+
+                        <!-- Bar body — milk chocolate -->
+                        <rect x="10" y="32" width="72" height="40" rx="4" ry="4"
+                              fill="#7B4A2D" stroke="#1A1A1A" stroke-width="3.5" />
+
+                        <!-- Segment horizontal grooves (darker chocolate recesses) -->
+                        <line x1="11" y1="46" x2="81" y2="46" stroke="#5C3317" stroke-width="3" />
+                        <line x1="11" y1="59" x2="81" y2="59" stroke="#5C3317" stroke-width="3" />
+
+                        <!-- Segment vertical grooves -->
+                        <line x1="30" y1="33" x2="30" y2="71" stroke="#5C3317" stroke-width="3" />
+                        <line x1="50" y1="33" x2="50" y2="71" stroke="#5C3317" stroke-width="3" />
+                        <line x1="70" y1="33" x2="70" y2="71" stroke="#5C3317" stroke-width="3" />
+
+                        <!-- Shine highlights (top-left gloss) -->
+                        <path d="M 14 35 Q 24 32 30 38" fill="none" stroke="rgba(255,255,255,0.50)" stroke-width="3" stroke-linecap="round" />
+                        <path d="M 14 42 Q 20 39 25 43" fill="none" stroke="rgba(255,255,255,0.30)" stroke-width="2" stroke-linecap="round" />
+
+                    </g>
+
+                    <!-- Broken-off piece (top-right, floating, lighter tone) -->
+                    <g transform="rotate(18, 84, 18)">
+                        <!-- Piece wrapper strip -->
+                        <rect x="69" y="8"  width="22" height="5" rx="2" ry="2"
+                              fill="#D4A96A" stroke="#1A1A1A" stroke-width="2" />
+                        <!-- Piece body — lighter chocolate (catching light) -->
+                        <rect x="69" y="12" width="22" height="13" rx="3" ry="3"
+                              fill="#A0623A" stroke="#1A1A1A" stroke-width="3" />
+                        <!-- One groove on the piece -->
+                        <line x1="80" y1="13" x2="80" y2="24" stroke="#7B4A2D" stroke-width="2.5" />
+                        <!-- Small shine on piece -->
+                        <path d="M 71 14 Q 75 12 79 15" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2" stroke-linecap="round" />
+                    </g>
+
+                    <!-- Jagged snap/break line connecting bar to piece -->
+                    <polyline points="70,26 74,19 78,23 82,16"
+                              fill="none" stroke="#1A1A1A" stroke-width="3.5"
+                              stroke-linecap="round" stroke-linejoin="round"
+                              transform="rotate(-8, 46, 55)" />
+
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-cookie') {
+            // Fully hardcoded Cacau Show cookie palette
+            // Cookie base:   #C8873A (golden baked dough)
+            // Cookie edge:   #A0622A (slightly darker border bake)
+            // Choco chips:   #2C1500 (very dark chocolate)
+            // Chip shine:    #5C3317 (lighter chip edge)
+            // Crumbs:        #D4A96A (light crumb pieces)
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.35));">
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+
+                    <!-- Cookie base — organic irregular circle (baked look) -->
+                    <path d="M 50 10
+                             C 62 8,  76 14, 82 26
+                             C 90 38, 88 54, 80 64
+                             C 74 72, 80 80, 72 86
+                             C 64 92, 50 92, 40 88
+                             C 28 83, 16 74, 13 60
+                             C 10 46, 14 30, 24 20
+                             C 32 12, 40 12, 50 10 Z"
+                          fill="#C8873A" stroke="#1A1A1A" stroke-width="3.5" />
+
+                    <!-- Inner baked texture ring (slightly darker dough near edge) -->
+                    <path d="M 50 16
+                             C 60 14, 72 20, 77 30
+                             C 83 42, 81 56, 74 64
+                             C 68 71, 53 84, 42 81
+                             C 30 78, 20 68, 18 56
+                             C 16 44, 20 30, 30 22
+                             C 37 16, 42 18, 50 16 Z"
+                          fill="none" stroke="#A0622A" stroke-width="2" stroke-dasharray="4 3" />
+
+                    <!-- Chocolate chips — dark irregular drops -->
+                    <!-- Chip 1 (top-left area) -->
+                    <ellipse cx="34" cy="32" rx="6" ry="5" transform="rotate(-20,34,32)"
+                             fill="#2C1500" stroke="#1A1A1A" stroke-width="2" />
+                    <path d="M 30 30 Q 33 27 36 30" fill="none" stroke="#5C3317" stroke-width="1.5" stroke-linecap="round" />
+
+                    <!-- Chip 2 (top-center) -->
+                    <ellipse cx="54" cy="26" rx="5" ry="4.5" transform="rotate(10,54,26)"
+                             fill="#2C1500" stroke="#1A1A1A" stroke-width="2" />
+                    <path d="M 51 24 Q 54 22 57 25" fill="none" stroke="#5C3317" stroke-width="1.5" stroke-linecap="round" />
+
+                    <!-- Chip 3 (right side) -->
+                    <ellipse cx="70" cy="44" rx="5.5" ry="4.5" transform="rotate(30,70,44)"
+                             fill="#2C1500" stroke="#1A1A1A" stroke-width="2" />
+                    <path d="M 67 42 Q 70 39 73 42" fill="none" stroke="#5C3317" stroke-width="1.5" stroke-linecap="round" />
+
+                    <!-- Chip 4 (center) -->
+                    <ellipse cx="48" cy="52" rx="6.5" ry="5.5" transform="rotate(-10,48,52)"
+                             fill="#2C1500" stroke="#1A1A1A" stroke-width="2" />
+                    <path d="M 44 50 Q 48 47 52 50" fill="none" stroke="#5C3317" stroke-width="1.5" stroke-linecap="round" />
+
+                    <!-- Chip 5 (bottom-left) -->
+                    <ellipse cx="30" cy="62" rx="5" ry="4" transform="rotate(15,30,62)"
+                             fill="#2C1500" stroke="#1A1A1A" stroke-width="2" />
+                    <path d="M 27 60 Q 30 57 33 60" fill="none" stroke="#5C3317" stroke-width="1.5" stroke-linecap="round" />
+
+                    <!-- Chip 6 (bottom-right) -->
+                    <ellipse cx="62" cy="68" rx="5" ry="4.5" transform="rotate(-15,62,68)"
+                             fill="#2C1500" stroke="#1A1A1A" stroke-width="2" />
+                    <path d="M 59 66 Q 62 63 65 66" fill="none" stroke="#5C3317" stroke-width="1.5" stroke-linecap="round" />
+
+                    <!-- Chip 7 (small, top-right) -->
+                    <ellipse cx="66" cy="28" rx="4" ry="3.5" transform="rotate(5,66,28)"
+                             fill="#2C1500" stroke="#1A1A1A" stroke-width="2" />
+
+                    <!-- Bite mark (top-right, chunk missing) -->
+                    <path d="M 76 18 C 84 10, 95 10, 94 22 C 93 30, 86 32, 80 28 Z"
+                          fill="white" stroke="#1A1A1A" stroke-width="3" stroke-linejoin="round" />
+                    <!-- Bite jagged edge texture -->
+                    <polyline points="76,18 79,22 83,19 87,24 91,20"
+                              fill="none" stroke="#C8873A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+
+                    <!-- Crumbs near bite -->
+                    <ellipse cx="90" cy="28" rx="3" ry="2" transform="rotate(20,90,28)" fill="#D4A96A" stroke="#1A1A1A" stroke-width="1.5" />
+                    <ellipse cx="84" cy="10" rx="2" ry="1.5" transform="rotate(-10,84,10)" fill="#D4A96A" stroke="#1A1A1A" stroke-width="1.5" />
+                    <ellipse cx="94" cy="16" rx="2.5" ry="2" transform="rotate(30,94,16)" fill="#C8873A" stroke="#1A1A1A" stroke-width="1.5" />
+
+                    <!-- Surface gloss (top-left of cookie) -->
+                    <path d="M 26 22 Q 36 16 44 22" fill="none" stroke="rgba(255,255,255,0.40)" stroke-width="3" stroke-linecap="round" />
+                    <path d="M 22 32 Q 28 28 34 32" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="2" stroke-linecap="round" />
+
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-choco-cookie') {
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.32));">
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+
+                    <!-- COOKIE (bottom-left, slightly behind) -->
+                    <g transform="rotate(-10, 28, 68)">
+                        <!-- Base organic shape -->
+                        <path d="M 28 48 C 40 46, 51 54, 50 67 C 49 80, 39 90, 27 90 C 15 90, 5 80, 6 67 C 7 54, 16 46, 28 48 Z"
+                              fill="#C8873A" stroke="#1A1A1A" stroke-width="3"/>
+                        <!-- Inner baked ring -->
+                        <path d="M 28 53 C 38 52, 46 59, 45 68 C 44 77, 37 85, 28 85 C 19 85, 12 77, 12 68 C 12 59, 18 52, 28 53 Z"
+                              fill="none" stroke="#A0622A" stroke-width="1.5" stroke-dasharray="3 2.5"/>
+                        <!-- Chip 1 -->
+                        <ellipse cx="20" cy="61" rx="4.5" ry="4" transform="rotate(-15,20,61)" fill="#2C1500" stroke="#1A1A1A" stroke-width="1.8"/>
+                        <path d="M 17 59 Q 20 56 23 59" fill="none" stroke="#5C3317" stroke-width="1.2" stroke-linecap="round"/>
+                        <!-- Chip 2 -->
+                        <ellipse cx="36" cy="60" rx="4" ry="3.5" transform="rotate(10,36,60)" fill="#2C1500" stroke="#1A1A1A" stroke-width="1.8"/>
+                        <path d="M 33 58 Q 36 55 39 58" fill="none" stroke="#5C3317" stroke-width="1.2" stroke-linecap="round"/>
+                        <!-- Chip 3 -->
+                        <ellipse cx="22" cy="74" rx="4" ry="3.5" transform="rotate(5,22,74)" fill="#2C1500" stroke="#1A1A1A" stroke-width="1.8"/>
+                        <path d="M 19 72 Q 22 69 25 72" fill="none" stroke="#5C3317" stroke-width="1.2" stroke-linecap="round"/>
+                        <!-- Chip 4 -->
+                        <ellipse cx="37" cy="76" rx="3.5" ry="3" transform="rotate(-10,37,76)" fill="#2C1500" stroke="#1A1A1A" stroke-width="1.8"/>
+                        <!-- Bite mark -->
+                        <path d="M 44 54 C 51 45, 61 48, 59 58 C 57 64, 49 65, 45 60 Z"
+                              fill="white" stroke="#1A1A1A" stroke-width="2.5" stroke-linejoin="round"/>
+                        <polyline points="44,54 47,58 51,54 55,59 58,55"
+                                  fill="none" stroke="#C8873A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <!-- Crumbs -->
+                        <ellipse cx="58" cy="49" rx="2" ry="1.5" transform="rotate(20,58,49)" fill="#D4A96A" stroke="#1A1A1A" stroke-width="1"/>
+                        <ellipse cx="63" cy="56" rx="1.5" ry="1.2" fill="#D4A96A" stroke="#1A1A1A" stroke-width="1"/>
+                        <!-- Gloss -->
+                        <path d="M 10 59 Q 18 53 24 57" fill="none" stroke="rgba(255,255,255,0.40)" stroke-width="2.5" stroke-linecap="round"/>
+                    </g>
+
+                    <!-- CHOCOLATE BAR (top-right, in front) -->
+                    <g transform="rotate(8, 67, 30)">
+                        <!-- Wrapper foil strip -->
+                        <rect x="43" y="10" width="48" height="7" rx="3" fill="#D4A96A" stroke="#1A1A1A" stroke-width="2.5"/>
+                        <!-- Bar body -->
+                        <rect x="43" y="16" width="48" height="30" rx="3" fill="#7B4A2D" stroke="#1A1A1A" stroke-width="3"/>
+                        <!-- H-groove -->
+                        <line x1="44" y1="28" x2="90" y2="28" stroke="#5C3317" stroke-width="2.5"/>
+                        <!-- V-grooves -->
+                        <line x1="63" y1="17" x2="63" y2="45" stroke="#5C3317" stroke-width="2.5"/>
+                        <line x1="76" y1="17" x2="76" y2="45" stroke="#5C3317" stroke-width="2.5"/>
+                        <!-- Shine -->
+                        <path d="M 47 18 Q 57 15 63 20" fill="none" stroke="rgba(255,255,255,0.50)" stroke-width="2.5" stroke-linecap="round"/>
+                        <path d="M 46 24 Q 53 21 59 24" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="1.5" stroke-linecap="round"/>
+                    </g>
+
+                    <!-- Broken piece (top-right, outside bar group) -->
+                    <g transform="rotate(20, 95, 10)">
+                        <rect x="87" y="5" width="16" height="4" rx="1.5" fill="#D4A96A" stroke="#1A1A1A" stroke-width="1.8"/>
+                        <rect x="87" y="8" width="16" height="9" rx="2" fill="#A0623A" stroke="#1A1A1A" stroke-width="2"/>
+                        <line x1="95" y1="9" x2="95" y2="16" stroke="#7B4A2D" stroke-width="1.5"/>
+                        <path d="M 89 9 Q 92 7 95 10" fill="none" stroke="rgba(255,255,255,0.40)" stroke-width="1.5" stroke-linecap="round"/>
+                    </g>
+                    <!-- Break snap line -->
+                    <polyline points="89,17 92,11 95,14 98,8"
+                              fill="none" stroke="#1A1A1A" stroke-width="2.5"
+                              stroke-linecap="round" stroke-linejoin="round"
+                              transform="rotate(8, 67, 30)"/>
+
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-snacks-combo') {
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.32));">
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+                    <!-- Energy Can (back left) -->
+                    <g transform="translate(5, 5) scale(0.7) rotate(-15, 50, 50)">
+                        <path d="M 36 15 L 36 85 C 36 90, 64 90, 64 85 L 64 15 Z" fill="#1D3557" stroke="#1A1A1A" stroke-width="3"/>
+                        <ellipse cx="50" cy="15" rx="14" ry="5" fill="#C0C0C0" stroke="#1A1A1A" stroke-width="3"/>
+                        <path d="M 36 85 C 36 90, 64 90, 64 85" fill="none" stroke="#1A1A1A" stroke-width="3"/>
+                        <ellipse cx="50" cy="14" rx="3.5" ry="1.5" fill="#808080" stroke="#1A1A1A" stroke-width="1.5"/>
+                        <circle cx="50" cy="15.5" r="1" fill="#1A1A1A"/>
+                        <path d="M 36 75 L 64 75 C 64 90, 36 90, 36 75 Z" fill="#C0C0C0" stroke="#1A1A1A" stroke-width="2.5"/>
+                        <polygon points="54,30 44,50 50,50 46,70 58,45 51,45" fill="#F4A261" stroke="#1A1A1A" stroke-width="2" stroke-linejoin="miter"/>
+                        <path d="M 42 25 L 42 70" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="3" stroke-linecap="round"/>
+                    </g>
+                    
+                    <!-- Soda Can (back right) -->
+                    <g transform="translate(35, 15) scale(0.6) rotate(15, 50, 50)">
+                        <path d="M 34 20 L 32 80 C 32 86, 68 86, 68 80 L 66 20 Z" fill="#E63946" stroke="#1A1A1A" stroke-width="3"/>
+                        <ellipse cx="50" cy="20" rx="16" ry="6" fill="#D3D3D3" stroke="#1A1A1A" stroke-width="3"/>
+                        <path d="M 32 80 C 32 86, 68 86, 68 80" fill="none" stroke="#1A1A1A" stroke-width="3"/>
+                        <ellipse cx="50" cy="19" rx="4" ry="2" fill="#808080" stroke="#1A1A1A" stroke-width="1.5"/>
+                        <circle cx="50" cy="21" r="1.5" fill="#1A1A1A"/>
+                        <path d="M 33 45 Q 50 30 67 45" fill="none" stroke="#F1FAEE" stroke-width="4"/>
+                        <path d="M 32.5 55 Q 50 40 67.5 55" fill="none" stroke="#F1FAEE" stroke-width="2"/>
+                        <path d="M 38 30 L 36 70" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="4" stroke-linecap="round"/>
+                    </g>
+                    
+                    <!-- Chips Bag (front center) -->
+                    <g transform="translate(10, 25) scale(0.8) rotate(5, 50, 50)">
+                        <path d="M 25 20 L 75 20 L 82 85 L 18 85 Z" fill="#F4A261" stroke="#1A1A1A" stroke-width="3"/>
+                        <polyline points="25,20 30,12 35,20 40,12 45,20 50,12 55,20 60,12 65,20 70,12 75,20" fill="#F4A261" stroke="#1A1A1A" stroke-width="2.5"/>
+                        <line x1="25" y1="20" x2="75" y2="20" stroke="#1A1A1A" stroke-width="3"/>
+                        <polyline points="18,85 24,93 30,85 36,93 42,85 48,93 54,85 60,93 66,85 72,93 78,85 82,85" fill="#F4A261" stroke="#1A1A1A" stroke-width="2.5"/>
+                        <line x1="18" y1="85" x2="82" y2="85" stroke="#1A1A1A" stroke-width="3"/>
+                        
+                        <ellipse cx="50" cy="50" rx="18" ry="12" fill="#F1FAEE" stroke="#1A1A1A" stroke-width="2.5"/>
+                        <polygon points="50,42 42,55 58,55" fill="#E63946" stroke="#1A1A1A" stroke-width="1.5"/>
+                        <path d="M 30 35 Q 26 50 30 65" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="3" stroke-linecap="round"/>
+                    </g>
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-brasil') {
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.35));">
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round" transform="rotate(-5, 50, 50)">
+                    <rect x="12" y="30" width="76" height="50" rx="6" fill="#007A2E" stroke="#1A1A1A" stroke-width="3.5" />
+                    <rect x="12" y="25" width="76" height="50" rx="6" fill="#009C3B" stroke="#1A1A1A" stroke-width="3.5" />
+                    <polygon points="50,31 82,50 50,69 18,50" fill="#FFDF00" stroke="#1A1A1A" stroke-width="3" stroke-linejoin="round" />
+                    <circle cx="50" cy="50" r="14" fill="#002776" stroke="#1A1A1A" stroke-width="2.5" />
+                    <path d="M 36 52 Q 50 45 64 52" fill="none" stroke="#FFFFFF" stroke-width="2.5" />
+                    <circle cx="45" cy="56" r="1.5" fill="#FFFFFF" stroke="none" />
+                    <circle cx="50" cy="57" r="1" fill="#FFFFFF" stroke="none" />
+                    <circle cx="56" cy="55" r="1.2" fill="#FFFFFF" stroke="none" />
+                    <circle cx="52" cy="60" r="0.8" fill="#FFFFFF" stroke="none" />
+                    <path d="M 16 30 Q 30 26 40 30" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="3" stroke-linecap="round" />
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-ticket') {
+            // Ticket Clássico Dourado — ingresso com canhoto e picote
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 5px 10px rgba(0,0,0,0.5));">
+                <defs>
+                    <linearGradient id="tg1a" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#F9E79F"/>
+                        <stop offset="100%" stop-color="#E67E22"/>
+                    </linearGradient>
+                    <linearGradient id="tg1b" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#D4AC0D"/>
+                        <stop offset="100%" stop-color="#9A6D00"/>
+                    </linearGradient>
+                </defs>
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="11" y="34" width="80" height="42" rx="6" fill="#3a1e00" stroke="none" opacity="0.35" transform="translate(2,5)"/>
+                    <rect x="9" y="29" width="82" height="42" rx="6" fill="url(#tg1a)" stroke-width="3"/>
+                    <rect x="9" y="29" width="82" height="9" rx="5" fill="url(#tg1b)" stroke-width="3"/>
+                    <line x1="27" y1="29" x2="27" y2="71" stroke="#1A1A1A" stroke-width="2" stroke-dasharray="4 3.5"/>
+                    <path d="M 9 44 A 8 8 0 0 1 9 57" fill="#0f0f1a" stroke="#1A1A1A" stroke-width="2.5"/>
+                    <path d="M 91 44 A 8 8 0 0 0 91 57" fill="#0f0f1a" stroke="#1A1A1A" stroke-width="2.5"/>
+                    <rect x="9" y="38" width="18" height="33" rx="3" fill="url(#tg1b)" stroke="none"/>
+                    <circle cx="18" cy="47" r="2" fill="#FFFFFF" opacity="0.75" stroke="none"/>
+                    <circle cx="18" cy="53" r="2" fill="#FFFFFF" opacity="0.75" stroke="none"/>
+                    <circle cx="18" cy="59" r="2" fill="#FFFFFF" opacity="0.75" stroke="none"/>
+                    <polygon points="57,37 59.5,44 67,44 61,48.5 63.5,56 57,51.5 50.5,56 53,48.5 47,44 54.5,44" fill="#FFFFFF" opacity="0.9" stroke="none"/>
+                    <line x1="29" y1="57" x2="89" y2="57" stroke="rgba(0,0,0,0.18)" stroke-width="1.5"/>
+                    <rect x="30" y="60" width="48" height="5" rx="2.5" fill="rgba(0,0,0,0.18)" stroke="none"/>
+                    <rect x="36" y="67" width="36" height="3.5" rx="1.8" fill="rgba(0,0,0,0.12)" stroke="none"/>
+                    <path d="M 12 32 Q 38 27 60 33" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="2.5" stroke-linecap="round"/>
+                    <path d="M 12 37 Q 28 34 40 38" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="1.5" stroke-linecap="round"/>
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-voucher') {
+            // Voucher Azul com laço de presente
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 5px 10px rgba(0,0,0,0.5));">
+                <defs>
+                    <linearGradient id="vg2a" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#5DADE2"/>
+                        <stop offset="100%" stop-color="#1A5276"/>
+                    </linearGradient>
+                </defs>
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="13" y="33" width="76" height="44" rx="7" fill="#061520" stroke="none" opacity="0.4" transform="translate(2,5)"/>
+                    <rect x="11" y="28" width="78" height="44" rx="7" fill="url(#vg2a)" stroke-width="3"/>
+                    <path d="M 11 43 A 8 8 0 0 1 11 57" fill="#0f0f1a" stroke="#1A1A1A" stroke-width="2.5"/>
+                    <path d="M 89 43 A 8 8 0 0 0 89 57" fill="#0f0f1a" stroke="#1A1A1A" stroke-width="2.5"/>
+                    <line x1="27" y1="28" x2="27" y2="72" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" stroke-dasharray="4 3"/>
+                    <rect x="11" y="28" width="16" height="44" rx="5" fill="rgba(0,0,0,0.2)" stroke="none"/>
+                    <circle cx="19" cy="46" r="2" fill="rgba(255,255,255,0.6)" stroke="none"/>
+                    <circle cx="19" cy="52" r="2" fill="rgba(255,255,255,0.6)" stroke="none"/>
+                    <circle cx="19" cy="58" r="2" fill="rgba(255,255,255,0.6)" stroke="none"/>
+                    <rect x="42" y="37" width="18" height="14" rx="2" fill="#FFFFFF" opacity="0.9" stroke="#1A1A1A" stroke-width="1.5"/>
+                    <rect x="42" y="43" width="18" height="2.5" fill="#E74C3C" stroke="none"/>
+                    <rect x="49.5" y="37" width="2.5" height="14" fill="#E74C3C" stroke="none"/>
+                    <path d="M 50 37 C 46 31, 40 32, 42 36" fill="#E74C3C" stroke="#1A1A1A" stroke-width="1.2" stroke-linecap="round"/>
+                    <path d="M 52 37 C 56 31, 62 32, 60 36" fill="#E74C3C" stroke="#1A1A1A" stroke-width="1.2" stroke-linecap="round"/>
+                    <circle cx="51" cy="37" r="2.5" fill="#C0392B" stroke="#1A1A1A" stroke-width="1.2"/>
+                    <rect x="30" y="57" width="52" height="5" rx="2.5" fill="rgba(255,255,255,0.25)" stroke="none"/>
+                    <rect x="36" y="64" width="40" height="3.5" rx="1.8" fill="rgba(255,255,255,0.15)" stroke="none"/>
+                    <path d="M 14 31 Q 40 26 62 32" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="2.5" stroke-linecap="round"/>
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-ticket-premio') {
+            // Ticket Premium Laranja/Vermelho — estilo ingresso de show com estrela
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 5px 12px rgba(0,0,0,0.55));">
+                <defs>
+                    <linearGradient id="og3a" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stop-color="#FF8C42"/>
+                        <stop offset="100%" stop-color="#C0392B"/>
+                    </linearGradient>
+                    <linearGradient id="og3b" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stop-color="#C0392B"/>
+                        <stop offset="100%" stop-color="#8E1A10"/>
+                    </linearGradient>
+                </defs>
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="29" width="84" height="44" rx="6" fill="#3a0900" stroke="none" opacity="0.4" transform="translate(2,6)"/>
+                    <rect x="7" y="23" width="86" height="54" rx="7" fill="url(#og3a)" stroke-width="3"/>
+                    <rect x="7" y="23" width="86" height="11" rx="6" fill="url(#og3b)" stroke-width="3"/>
+                    <path d="M 7 46 A 9 9 0 0 1 7 59" fill="#0f0f1a" stroke="#1A1A1A" stroke-width="3"/>
+                    <path d="M 93 46 A 9 9 0 0 0 93 59" fill="#0f0f1a" stroke="#1A1A1A" stroke-width="3"/>
+                    <line x1="27" y1="34" x2="27" y2="77" stroke="#1A1A1A" stroke-width="2" stroke-dasharray="4 3.5"/>
+                    <rect x="7" y="34" width="20" height="43" rx="4" fill="url(#og3b)" stroke="none"/>
+                    <circle cx="17" cy="46" r="2.2" fill="rgba(255,255,255,0.7)" stroke="none"/>
+                    <circle cx="17" cy="52" r="2.2" fill="rgba(255,255,255,0.7)" stroke="none"/>
+                    <circle cx="17" cy="58" r="2.2" fill="rgba(255,255,255,0.7)" stroke="none"/>
+                    <circle cx="17" cy="64" r="2.2" fill="rgba(255,255,255,0.7)" stroke="none"/>
+                    <circle cx="57" cy="40" r="10" fill="#FFFFFF" opacity="0.15" stroke="#FFFFFF" stroke-width="1.5"/>
+                    <polygon points="57,32 59.2,38.5 66,38.5 60.5,42.5 62.8,49 57,45 51.2,49 53.5,42.5 48,38.5 54.8,38.5" fill="#FFFFFF" opacity="0.95" stroke="none"/>
+                    <line x1="29" y1="60" x2="91" y2="60" stroke="rgba(0,0,0,0.2)" stroke-width="1.5"/>
+                    <rect x="30" y="64" width="52" height="5" rx="2.5" fill="rgba(0,0,0,0.2)" stroke="none"/>
+                    <rect x="36" y="71" width="40" height="3.5" rx="1.8" fill="rgba(0,0,0,0.12)" stroke="none"/>
+                    <path d="M 10 26 Q 42 21 72 27" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="2.5" stroke-linecap="round"/>
+                    <path d="M 10 31 Q 30 27 48 32" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="1.5" stroke-linecap="round"/>
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-lampada') {
+            const c = color || '#F5A623';
+            // Glow color derived from the fill color for a realistic light effect
+            const glow = c;
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 10px rgba(0,0,0,0.35));">
+                <defs>
+                    <radialGradient id="bulbGlow_${c.replace('#','')}" cx="50%" cy="45%" r="50%">
+                        <stop offset="0%" stop-color="#FFFDE7" stop-opacity="1"/>
+                        <stop offset="60%" stop-color="${c}" stop-opacity="0.9"/>
+                        <stop offset="100%" stop-color="${c}" stop-opacity="0.4"/>
+                    </radialGradient>
+                    <radialGradient id="bulbShine_${c.replace('#','')}" cx="35%" cy="30%" r="45%">
+                        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.75"/>
+                        <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+                    </radialGradient>
+                </defs>
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-linejoin="round">
+                    <!-- Sombra / glow atrás do bulbo -->
+                    <ellipse cx="50" cy="50" rx="26" ry="26" fill="${glow}" opacity="0.18" stroke="none"/>
+
+                    <!-- Corpo da lâmpada (bulbo) -->
+                    <path d="M 35 52 C 28 42 28 26 38 18 C 44 13 56 13 62 18 C 72 26 72 42 65 52 C 62 57 60 60 60 64 L 40 64 C 40 60 38 57 35 52 Z"
+                          fill="url(#bulbGlow_${c.replace('#','')})" stroke-width="3"/>
+
+                    <!-- Brilho interno (reflexo) -->
+                    <path d="M 35 52 C 28 42 28 26 38 18 C 44 13 56 13 62 18 C 72 26 72 42 65 52 C 62 57 60 60 60 64 L 40 64 C 40 60 38 57 35 52 Z"
+                          fill="url(#bulbShine_${c.replace('#','')})" stroke="none"/>
+
+                    <!-- Filamento (detalhe interno) -->
+                    <path d="M 44 54 L 44 46 L 50 42 L 56 46 L 56 54" fill="none" stroke="rgba(255,200,50,0.85)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+                    <!-- Anel divisor 1 (base do bulbo) -->
+                    <rect x="37" y="64" width="26" height="5" rx="2.5" fill="#9E9E9E" stroke-width="2"/>
+
+                    <!-- Anel divisor 2 -->
+                    <rect x="38" y="71" width="24" height="5" rx="2.5" fill="#757575" stroke-width="2"/>
+
+                    <!-- Rosca da lâmpada (base metálica) -->
+                    <path d="M 40 76 L 40 86 C 40 88 42 90 50 90 C 58 90 60 88 60 86 L 60 76 Z"
+                          fill="#BDBDBD" stroke-width="2.5"/>
+                    <!-- Linhas de rosca -->
+                    <line x1="40" y1="79" x2="60" y2="79" stroke="#9E9E9E" stroke-width="1.5"/>
+                    <line x1="40" y1="82.5" x2="60" y2="82.5" stroke="#9E9E9E" stroke-width="1.5"/>
+                    <line x1="40" y1="86" x2="60" y2="86" stroke="#9E9E9E" stroke-width="1"/>
+
+                    <!-- Brilho lateral esquerdo no bulbo -->
+                    <path d="M 36 35 Q 37 27 44 23" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="3" stroke-linecap="round"/>
+                    <path d="M 34 44 Q 34 39 37 36" fill="none" stroke="rgba(255,255,255,0.40)" stroke-width="2" stroke-linecap="round"/>
+
+                    <!-- Raios de luz irradiando (pontilhados) -->
+                    <line x1="50" y1="6" x2="50" y2="11" stroke="${c}" stroke-width="2.5" stroke-linecap="round" opacity="0.75"/>
+                    <line x1="71" y1="12" x2="68" y2="16" stroke="${c}" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
+                    <line x1="78" y1="34" x2="73" y2="36" stroke="${c}" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
+                    <line x1="29" y1="12" x2="32" y2="16" stroke="${c}" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
+                    <line x1="22" y1="34" x2="27" y2="36" stroke="${c}" stroke-width="2.5" stroke-linecap="round" opacity="0.65"/>
+                </g>
+            </svg>`;
+        }
+        if (iconName === 'svg-lampada-badge') {
+            const c = color || '#F5A623';
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 10px rgba(0,0,0,0.4));">
+                <circle cx="50" cy="50" r="48" fill="${c}"/>
+                <g stroke="white" stroke-linecap="round" stroke-width="3.5">
+                    <line x1="50" y1="3" x2="50" y2="13"/>
+                    <line x1="76" y1="11" x2="70" y2="18"/>
+                    <line x1="24" y1="11" x2="30" y2="18"/>
+                    <line x1="94" y1="46" x2="84" y2="46"/>
+                    <line x1="6"  y1="46" x2="16" y2="46"/>
+                </g>
+                <path d="M 50 22 C 63 22 73 31 73 45 C 73 55 67 61 62 66 L 38 66 C 33 61 27 55 27 45 C 27 31 37 22 50 22 Z" fill="white" stroke="none"/>
+                <line x1="38" y1="60" x2="62" y2="60" stroke="${c}" stroke-width="2.5" stroke-linecap="round"/>
+                <rect x="38" y="66" width="24" height="4.5" rx="1.5" fill="#DEDEDE" stroke="rgba(0,0,0,0.12)" stroke-width="1"/>
+                <rect x="38" y="71.5" width="24" height="4.5" rx="1.5" fill="#C8C8C8" stroke="rgba(0,0,0,0.12)" stroke-width="1"/>
+                <rect x="40" y="77" width="20" height="5" rx="2.5" fill="#ADADAD" stroke="rgba(0,0,0,0.12)" stroke-width="1"/>
+            </svg>`;
+        }
+        if (iconName === 'svg-lampada-flat') {
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.3));">
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-width="5">
+                    <line x1="50" y1="4"  x2="50" y2="14"/>
+                    <line x1="77" y1="11" x2="70" y2="19"/>
+                    <line x1="23" y1="11" x2="30" y2="19"/>
+                    <line x1="92" y1="44" x2="82" y2="47"/>
+                    <line x1="8"  y1="44" x2="18" y2="47"/>
+                    <line x1="77" y1="77" x2="70" y2="70"/>
+                    <line x1="23" y1="77" x2="30" y2="70"/>
+                </g>
+                <path d="M 50 17 C 70 17 81 31 81 47 C 81 59 73 67 66 72 L 34 72 C 27 67 19 59 19 47 C 19 31 30 17 50 17 Z" fill="#FFD700" stroke="#1A1A1A" stroke-width="5" stroke-linejoin="round"/>
+                <line x1="34" y1="66" x2="66" y2="66" stroke="#1A1A1A" stroke-width="4"/>
+                <rect x="32" y="72" width="36" height="5.5" rx="1.5" fill="#D4D4D4" stroke="#1A1A1A" stroke-width="4"/>
+                <rect x="32" y="78.5" width="36" height="5.5" rx="1.5" fill="#B8B8B8" stroke="#1A1A1A" stroke-width="4"/>
+                <rect x="35" y="85" width="30" height="5.5" rx="2.5" fill="#9C9C9C" stroke="#1A1A1A" stroke-width="4"/>
+            </svg>`;
+        }
+        if (iconName === 'svg-lampada-check') {
+            return `<svg viewBox="0 0 100 100" width="1em" height="1em" style="font-size:inherit; filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.3));">
+                <g stroke="#1A1A1A" stroke-linecap="round" stroke-width="5">
+                    <line x1="50" y1="4"  x2="50" y2="14"/>
+                    <line x1="77" y1="11" x2="70" y2="19"/>
+                    <line x1="23" y1="11" x2="30" y2="19"/>
+                    <line x1="92" y1="44" x2="82" y2="47"/>
+                    <line x1="8"  y1="44" x2="18" y2="47"/>
+                    <line x1="77" y1="77" x2="70" y2="70"/>
+                    <line x1="23" y1="77" x2="30" y2="70"/>
+                </g>
+                <path d="M 50 17 C 70 17 81 31 81 47 C 81 59 73 67 66 72 L 34 72 C 27 67 19 59 19 47 C 19 31 30 17 50 17 Z" fill="#FFD700" stroke="#1A1A1A" stroke-width="5" stroke-linejoin="round"/>
+                <path d="M 33 47 L 45 60 L 67 36" fill="none" stroke="#1A1A1A" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="34" y1="66" x2="66" y2="66" stroke="#1A1A1A" stroke-width="4"/>
+                <rect x="32" y="72" width="36" height="5.5" rx="1.5" fill="#4DD0E1" stroke="#1A1A1A" stroke-width="4"/>
+                <rect x="32" y="78.5" width="36" height="5.5" rx="1.5" fill="#26C6DA" stroke="#1A1A1A" stroke-width="4"/>
+                <rect x="35" y="85" width="30" height="5.5" rx="2.5" fill="#00ACC1" stroke="#1A1A1A" stroke-width="4"/>
+            </svg>`;
+        }
+        const cls = getIconClass(iconName || 'fa-gift');
+        return `<i class="${cls}" style="color: ${color || '#006837'};"></i>`;
+    };
+
+    // Admin Mission Creation Logic
+    const renderAdminMissions = () => {
+        const iconSelect = document.getElementById('mission-icon');
+        const iconPreview = document.getElementById('mission-icon-preview');
+
+        if (iconSelect && iconPreview) {
+            const updateIconPreview = () => {
+                const iconValue = iconSelect.value || 'fa-question';
+                iconPreview.innerHTML = getIconHTML(iconValue, '#1976d2');
+            };
+            iconSelect.addEventListener('change', updateIconPreview);
+            updateIconPreview();
+        }
+    };
+
+    const missionsCollection = dbAvailable && dbInstance ? dbInstance.collection('custom_missions') : null;
+    let sharedMissionCache = [];
+
+    const getMissionData = () => {
+        const localMissions = JSON.parse(localStorage.getItem('moura_leite_missions')) || [];
+        if (dbAvailable) {
+            return sharedMissionCache.length ? sharedMissionCache : localMissions;
+        }
+        return localMissions;
+    };
+
+    const subscribeSharedMissions = () => {
+        if (!dbAvailable || !missionsCollection) {
+            console.warn('Skipping shared missions subscription because Firestore is unavailable.');
+            return;
+        }
+
+        missionsCollection.orderBy('createdAt', 'asc').onSnapshot((snapshot) => {
+            sharedMissionCache = [];
+            snapshot.forEach((doc) => {
+                sharedMissionCache.push(doc.data());
+            });
+            localStorage.setItem('moura_leite_missions', JSON.stringify(sharedMissionCache));
+            renderCustomMissions();
+            if (typeof renderAdminMissionsList === 'function') renderAdminMissionsList();
+            console.log('Shared missions synced from Firestore:', sharedMissionCache.length);
+        }, (error) => {
+            console.error('Error syncing shared missions:', error);
+        });
+    };
+
+    // Register mission form listener once
+    const registerMissionFormListener = () => {
+        const missionForm = document.getElementById('mission-form');
+        if (missionForm && !missionForm.hasListener) {
+            console.log('Mission form found, registering submit listener');
+            missionForm.addEventListener('submit', handleMissionSubmit);
+            
+            // Icon & Color Real-time Preview Logic
+            const iconSelect = document.getElementById('mission-icon');
+            const colorInput = document.getElementById('mission-color');
+            const previewBox = document.getElementById('mission-icon-preview');
+            
+            const updatePreview = () => {
+                if (!previewBox) return;
+                const iconValue = iconSelect.value || 'fa-question';
+                const color = colorInput.value || '#1976d2';
+                previewBox.innerHTML = getIconHTML(iconValue, color);
+            };
+            
+            if (iconSelect) iconSelect.addEventListener('change', updatePreview);
+            if (colorInput) colorInput.addEventListener('input', updatePreview);
+            
+            const cancelBtn = document.getElementById('cancel-edit-mission-btn');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => {
+                    missionForm.reset();
+                    delete missionForm.dataset.editingId;
+                    const submitBtn = missionForm.querySelector('button[type="submit"]');
+                    if (submitBtn) submitBtn.textContent = 'Cadastrar Missão';
+                    cancelBtn.classList.add('hidden');
+                    updatePreview();
+                });
+            }
+
+            missionForm.hasListener = true;
+        } else if (missionForm) {
+            console.log('Mission form listener already registered');
+        } else {
+            console.warn('Mission form not found');
+        }
+    };
+    
+    const seedDefaultMissions = () => {
+        const SEED_VERSION = 'moura_leite_seeded_v2';
+        if (!localStorage.getItem(SEED_VERSION)) {
+            const defaults = [
+                { id: 'sys_checkin', name: 'Check-in Diário', frequency: 'daily', points: 1, validationType: 'button', active: true, surprise: false, description: 'Garanta seu ponto diário apenas acessando o portal.', icon: 'fa-calendar-check', color: '#1976d2', createdAt: new Date().toISOString() },
+                { id: 'sys_lunch', name: 'Integração entre Times', frequency: 'weekly', points: 5, validationType: 'photo', active: true, surprise: false, description: 'Almoço com você + 2 pessoas de departamentos diferentes.', icon: 'fa-people-arrows', color: '#f57c00', createdAt: new Date().toISOString() },
+                { id: 'sys_reuniao', name: 'Reunião de Integração', frequency: 'weekly', points: 8, validationType: 'photo', active: true, surprise: false, description: 'Participe de um encontro com colegas de outro setor.', icon: 'fa-handshake', color: '#4caf50', createdAt: new Date().toISOString() },
+                { id: 'sys_embaixador', name: 'Embaixador Digital', frequency: 'monthly', points: 15, validationType: 'link', active: true, surprise: false, description: 'Compartilhe o novo lançamento da Moura Leite no seu LinkedIn pessoal.', icon: 'fa-brands fa-linkedin', color: '#0077b5', createdAt: new Date().toISOString() },
+                { id: 'sys_vivaengage', name: 'Engajamento Viva Engage', frequency: 'monthly', points: 12, validationType: 'link', active: true, surprise: false, description: 'Faça uma postagem no Viva Engage da empresa.', icon: 'fa-share-nodes', color: '#7b2cbf', createdAt: new Date().toISOString() },
+                { id: 'sys_jogos', name: 'Dinâmica de Jogos', frequency: 'weekly', points: 20, validationType: 'photo', active: true, surprise: false, description: 'Participe da dinâmica de interação dos nossos jogos de tabuleiro durante a semana. Procure o Alex ou a Mariana do RH para alinhar o dia e horário.', icon: 'fa-people-group', color: '#F1863B', createdAt: new Date().toISOString() }
+            ];
+            
+            let missions = JSON.parse(localStorage.getItem('moura_leite_missions')) || [];
+            defaults.forEach(d => {
+                const idx = missions.findIndex(m => m.id === d.id);
+                if (idx === -1) {
+                    missions.push(d);
+                } else {
+                    // Update system missions properties
+                    missions[idx] = { ...missions[idx], ...d };
+                }
+            });
+            localStorage.setItem('moura_leite_missions', JSON.stringify(missions));
+            localStorage.setItem(SEED_VERSION, 'true');
+            
+            if (dbAvailable && missionsCollection) {
+                defaults.forEach(async d => {
+                    try {
+                        const docRef = missionsCollection.doc(d.id);
+                        const docSnap = await docRef.get();
+                        if (!docSnap.exists) {
+                            await docRef.set(d, {merge: true});
+                        }
+                    } catch (e) {
+                        console.error('Error seeding mission:', e);
+                    }
+                });
+            }
+        }
+    };
+
+    
+    const renderCustomMissions = () => {
+        const questsGrid = document.getElementById('quests-grid');
+        if (!questsGrid) return;
+
+        // Remove previously injected custom missions to avoid duplicates
+        questsGrid.querySelectorAll('.custom-quest-card').forEach(card => card.remove());
+
+        const missions = getMissionData();
+        if (missions.length === 0) {
+            return;
+        }
+
+        const multiplier = getCurrentMultiplier();
+        questsGrid.insertAdjacentHTML('beforeend', missions
+            .filter(m => {
+                if (!m.active) return false;
+                if (m.frequency === 'once' && storedUser['lastCustomOnce_' + m.id] === 'completed') {
+                    return false;
+                }
+                return true;
+            })
+            .map(mission => {
+                const badgeLabel = mission.frequency === 'daily' ? 'Diário' : mission.frequency === 'weekly' ? 'Semanal' : mission.frequency === 'monthly' ? 'Mensal' : 'Única';
+                const showFrequencyBadge = !mission.surprise;
+                const surpriseBadge = mission.surprise ? `<div class="quest-surprise-badge"><span class="fire-emoji">🔥</span><span>Surpresa</span></div>` : '';
+                
+                // Discount badge logic
+                const discountConfig = {
+                    oferta:     { emoji: '🏷️', label: 'Oferta' },
+                    desconto:   { emoji: '💰', label: 'Desconto' },
+                    imperdivel: { emoji: '⚡', label: 'Oferta Imperdível' },
+                    limitada:   { emoji: '🔥', label: 'Oferta Limitada' },
+                    promocao:   { emoji: '✨', label: 'Promoção' },
+                    especial:   { emoji: '💎', label: 'Preço Especial' }
+                };
+                const dt = mission.discountType || '';
+                const discountBadge = dt && discountConfig[dt]
+                    ? `<div class="quest-discount-badge quest-discount-badge--${dt}"><span class="discount-emoji">${discountConfig[dt].emoji}</span><span>${discountConfig[dt].label}</span></div>`
+                    : '';
+
+                const pointValue = Math.floor((mission.points || 0) * multiplier);
+                const iconClass = getIconClass(mission.icon);
+                const iconColor = mission.color || '#1976d2';
+                const expiresAt = mission.expiresAt ? new Date(mission.expiresAt).getTime() : null;
+                const isTimed = !!expiresAt;
+                const isExpired = isTimed && expiresAt <= Date.now();
+                const diff = isTimed && !isExpired ? expiresAt - Date.now() : 0;
+                const hours = Math.floor(diff / 3600000);
+                const minutes = Math.floor((diff % 3600000) / 60000);
+                const seconds = Math.floor((diff % 60000) / 1000);
+                const hotLabel = isExpired ? 'Expirada' : (hours > 0 ? `${hours}h ${minutes}m ${seconds}s` : minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
+                const hotBadge = isTimed ? `<div class="quest-hot-badge" data-expires="${expiresAt}" style="${isExpired ? 'color: #999; text-decoration: line-through;' : ''}"><i class="fa-solid fa-clock"></i> <span>${hotLabel}</span></div>` : '';
+                
+                // Check if mission was already completed this period
+                const lastKey = mission.frequency === 'daily' ? 'lastCustomDaily_' + mission.id
+                              : mission.frequency === 'weekly' ? 'lastCustomWeekly_' + mission.id
+                              : mission.frequency === 'monthly' ? 'lastCustomMonthly_' + mission.id
+                              : 'lastCustomOnce_' + mission.id;
+                const dateKey = mission.frequency === 'daily' ? todayStr
+                             : mission.frequency === 'weekly' ? currentWeek
+                             : mission.frequency === 'monthly' ? currentMonth
+                             : 'completed';
+                
+                const isCompleted = storedUser[lastKey] === dateKey || 
+                                    (mission.id === 'sys_checkin' && storedUser.lastCheckIn === todayStr) ||
+                                    (mission.id === 'sys_lunch' && storedUser.lastLunchWeek === currentWeek) ||
+                                    (mission.id === 'sys_reuniao' && storedUser.lastReuniaoWeek === currentWeek) ||
+                                    (mission.id === 'sys_embaixador' && storedUser.lastLinkedInMonth === currentMonth) ||
+                                    (mission.id === 'sys_vivaengage' && storedUser.lastVivaEngageMonth === currentMonth) ||
+                                    (mission.id === 'sys_jogos' && storedUser.lastGamesWeek === currentWeek);
+                
+                let buttonText = isCompleted ? 'Concluído' : 
+                    (mission.validationType === 'photo' ? 'Enviar Foto' : 
+                     mission.validationType === 'link' ? 'Enviar Link' : 
+                     mission.validationType === 'praise' ? 'Elogiar' : 'Validar');
+                
+                if (isExpired && !isCompleted) buttonText = 'Expirada';
+                
+                const buttonDisabled = (isCompleted || isExpired) ? 'disabled' : '';
+                
+                const adminActions = isAdmin ? `
+                            <div class="admin-mission-actions">
+                                <button class="btn-admin-action" onclick="editMission('${mission.id}')">Editar</button>
+                                <button class="btn-admin-action btn-delete" onclick="deleteMission('${mission.id}')">Excluir</button>
+                            </div>
+                        ` : '';
+
+                return `
+                    <div class="quest-card custom-quest-card">
+                        ${hotBadge}
+                        ${discountBadge}
+                        ${surpriseBadge}
+                        ${showFrequencyBadge ? `<div class="quest-badge ${mission.frequency}">${badgeLabel}</div>` : ''}
+                        <div class="quest-main-icon" style="color: ${iconColor}; display: flex; justify-content: center; align-items: center;">${getIconHTML(mission.icon, iconColor)}</div>
+                        <h3>${mission.name}</h3>
+                        <p>${mission.description}</p>
+                        <div class="quest-footer">
+                            <span class="pts-gain" style="display:flex; align-items:center; gap:4px; font-weight:700;">
+                                +${pointValue}
+                                <svg viewBox="0 0 100 100" width="16" height="16" style="filter: drop-shadow(0 1px 1px rgba(0,0,0,0.2));">
+                                    <circle cx="68" cy="30" r="28" fill="#F1863B" />
+                                    <ellipse cx="38" cy="38" rx="16" ry="14" fill="#2E7D32" />
+                                    <ellipse cx="55" cy="32" rx="14" ry="13" fill="#388E3C" />
+                                    <ellipse cx="68" cy="38" rx="15" ry="13" fill="#2E7D32" />
+                                    <ellipse cx="50" cy="28" rx="13" ry="12" fill="#43A047" />
+                                    <ellipse cx="42" cy="44" rx="12" ry="10" fill="#388E3C" />
+                                    <ellipse cx="62" cy="44" rx="12" ry="10" fill="#2E7D32" />
+                                    <ellipse cx="52" cy="22" rx="10" ry="9" fill="#4CAF50" />
+                                    <path d="M 46 50 L 42 78 C 42 80 44 82 50 82 C 56 82 58 80 58 78 L 54 50 Z" fill="#1B5E20" />
+                                    <line x1="22" y1="82" x2="78" y2="82" stroke="#1B5E20" stroke-width="3" stroke-linecap="round" />
+                                </svg>
+                            </span>
+                            <button class="btn-checkin custom-mission-btn" ${buttonDisabled} data-mission-id="${mission.id}" data-mission-name="${mission.name}" data-mission-points="${mission.points}" data-validation-type="${mission.validationType}" data-frequency="${mission.frequency}">${buttonText}</button>
+                        </div>
+                        ${adminActions}
+                    </div>
+                `;
+            })
+            .join(''));
+
+        const dashboardList = document.getElementById('dashboard-missions-list');
+        if (dashboardList) {
+            dashboardList.innerHTML = '';
+            const topMissions = missions.filter(m => {
+                if (!m.active || m.surprise) return false;
+                if (m.frequency === 'once' && storedUser['lastCustomOnce_' + m.id] === 'completed') {
+                    return false;
+                }
+                return true;
+            }).slice(0, 4);
+            dashboardList.insertAdjacentHTML('beforeend', topMissions.map(mission => {
+                const iconClass = getIconClass(mission.icon);
+                const pointValue = Math.floor((mission.points || 0) * multiplier);
+                
+                const lastKey = mission.frequency === 'daily' ? 'lastCustomDaily_' + mission.id
+                              : mission.frequency === 'weekly' ? 'lastCustomWeekly_' + mission.id
+                              : mission.frequency === 'monthly' ? 'lastCustomMonthly_' + mission.id
+                              : 'lastCustomOnce_' + mission.id;
+                const dateKey = mission.frequency === 'daily' ? todayStr
+                             : mission.frequency === 'weekly' ? currentWeek
+                             : mission.frequency === 'monthly' ? currentMonth
+                             : 'completed';
+                const isCompleted = storedUser[lastKey] === dateKey || 
+                                    (mission.id === 'sys_checkin' && storedUser.lastCheckIn === todayStr) ||
+                                    (mission.id === 'sys_lunch' && storedUser.lastLunchWeek === currentWeek) ||
+                                    (mission.id === 'sys_reuniao' && storedUser.lastReuniaoWeek === currentWeek) ||
+                                    (mission.id === 'sys_embaixador' && storedUser.lastLinkedInMonth === currentMonth) ||
+                                    (mission.id === 'sys_vivaengage' && storedUser.lastVivaEngageMonth === currentMonth) ||
+                                    (mission.id === 'sys_jogos' && storedUser.lastGamesWeek === currentWeek);
+
+                let buttonText = isCompleted ? 'Concluído' : 
+                    (mission.validationType === 'photo' ? 'Enviar Foto' : 
+                     mission.validationType === 'link' ? 'Enviar Link' : '+'+pointValue+' <svg viewBox="0 0 100 100" width="14" height="14" style="margin-bottom:-2px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.2));"><circle cx="68" cy="30" r="28" fill="#F1863B" /><ellipse cx="38" cy="38" rx="16" ry="14" fill="#2E7D32" /><ellipse cx="55" cy="32" rx="14" ry="13" fill="#388E3C" /><ellipse cx="68" cy="38" rx="15" ry="13" fill="#2E7D32" /><ellipse cx="50" cy="28" rx="13" ry="12" fill="#43A047" /><ellipse cx="42" cy="44" rx="12" ry="10" fill="#388E3C" /><ellipse cx="62" cy="44" rx="12" ry="10" fill="#2E7D32" /><ellipse cx="52" cy="22" rx="10" ry="9" fill="#4CAF50" /><path d="M 46 50 L 42 78 C 42 80 44 82 50 82 C 56 82 58 80 58 78 L 54 50 Z" fill="#1B5E20" /><line x1="22" y1="82" x2="78" y2="82" stroke="#1B5E20" stroke-width="3" stroke-linecap="round" /></svg>');
+                     
+                return `
+                    <div class="mission-item">
+                        <div class="mission-icon" style="background-color: ${mission.color || '#1976d2'}20; color: ${mission.color || '#1976d2'}; font-size: 1.2em;">
+                            ${getIconHTML(mission.icon, mission.color || '#1976d2')}
+                        </div>
+                        <div class="mission-details">
+                            <h4>${mission.name}</h4>
+                            <p>${isCompleted ? 'Missão cumprida!' : mission.description.substring(0, 40) + '...'}</p>
+                        </div>
+                        <button class="btn-checkin custom-mission-btn" ${isCompleted ? 'disabled' : ''} data-mission-id="${mission.id}" data-mission-name="${mission.name}" data-mission-points="${mission.points}" data-validation-type="${mission.validationType}" data-frequency="${mission.frequency}">
+                            ${buttonText}
+                        </button>
+                    </div>
+                `;
+            }).join(''));
+        }
+    };
+
+    const renderAdminMissionsList = () => {
+        const body = document.getElementById('admin-missions-list-body');
+        if (!body) return;
+
+        const missions = getMissionData();
+        if (missions.length === 0) {
+            body.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #999;">Nenhuma missão cadastrada.</td></tr>';
+            return;
+        }
+
+        body.innerHTML = missions.map(mission => {
+            const freqLabel = mission.frequency === 'daily' ? 'Diária' : mission.frequency === 'weekly' ? 'Semanal' : mission.frequency === 'monthly' ? 'Mensal' : 'Única';
+            const statusLabel = mission.active ? 'Ativa' : 'Inativa';
+            const surpriseFlag = mission.surprise ? ' <span style="color:#e53935; font-size:0.8rem;">(Surpresa)</span>' : '';
+            const discountFlag = mission.discountType ? ' <span style="color:#00C853; font-size:0.8rem;">(Desconto)</span>' : '';
+            return `
+                <tr>
+                    <td><strong>${mission.name}</strong>${surpriseFlag}${discountFlag}</td>
+                    <td>${freqLabel}</td>
+                    <td>${mission.points} ML Coins</td>
+                    <td><span class="status-badge ${mission.active ? 'status-unlocked' : 'status-locked'}">${statusLabel}</span></td>
+                    <td>
+                        <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                            <button onclick="editMission('${mission.id}')" class="btn-buy" style="padding:4px 8px; font-size:10px;">Editar</button>
+                            <button onclick="deleteMission('${mission.id}')" class="btn-buy" style="padding:4px 8px; font-size:10px; background:#d32f2f;">Excluir</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    };
+
+    const handleMissionSubmit = async (e) => {
+        e.preventDefault();
+        
+        console.log('Mission form submitted');
+        
+        const form = document.getElementById('mission-form');
+        const editingId = form.dataset.editingId;
+
+        const name = document.getElementById('mission-name').value;
+        const frequency = document.getElementById('mission-frequency').value;
+        const description = document.getElementById('mission-description').value;
+        const points = parseInt(document.getElementById('mission-points').value);
+        const icon = document.getElementById('mission-icon').value;
+        const color = document.getElementById('mission-color').value;
+        const validationType = document.getElementById('mission-validation-type').value;
+        const active = document.getElementById('mission-active').checked;
+        const surprise = document.getElementById('mission-surprise').checked;
+        const discountType = document.getElementById('mission-discount-type').value || '';
+        const rawDuration = parseInt(document.getElementById('mission-duration').value, 10);
+        const durationHours = isNaN(rawDuration) ? 0 : rawDuration;
+        const expiresAt = surprise && durationHours > 0 ? new Date(Date.now() + durationHours * 3600000).toISOString() : null;
+
+        try {
+            const missions = JSON.parse(localStorage.getItem('moura_leite_missions')) || [];
+
+            if (editingId) {
+                // Update existing
+                const index = missions.findIndex(m => m.id === editingId);
+                if (index !== -1) {
+                    const safeDuration = isNaN(durationHours) ? 0 : durationHours;
+                    const oldDuration = missions[index].durationHours || 0;
+                    const currentExpires = missions[index].expiresAt ? new Date(missions[index].expiresAt).getTime() : 0;
+                    const isExpired = currentExpires && currentExpires <= Date.now();
+                    
+                    let newExpiresAt = missions[index].expiresAt;
+                    if (surprise && safeDuration > 0) {
+                        // Se a missão está expirada OU se o administrador alterou o valor da duração, renova o tempo!
+                        if (!newExpiresAt || isExpired || safeDuration !== oldDuration) {
+                            newExpiresAt = new Date(Date.now() + safeDuration * 3600000).toISOString();
+                        }
+                    } else {
+                        newExpiresAt = null;
+                    }
+
+                    const updatedMission = {
+                        ...missions[index],
+                        name,
+                        frequency,
+                        description,
+                        points,
+                        icon,
+                        color,
+                        validationType,
+                        active,
+                        surprise,
+                        discountType,
+                        durationHours: surprise ? safeDuration : null,
+                        expiresAt: newExpiresAt,
+                        updatedAt: new Date().toISOString()
+                    };
+                    
+                    // Firestore won't accept undefined values, so we clean the object
+                    Object.keys(updatedMission).forEach(key => {
+                        if (updatedMission[key] === undefined) {
+                            delete updatedMission[key];
+                        }
+                    });
+                    missions[index] = updatedMission;
+                    localStorage.setItem('moura_leite_missions', JSON.stringify(missions));
+
+                    if (dbAvailable && missionsCollection) {
+                        try {
+                            await missionsCollection.doc(editingId).set(updatedMission, { merge: true });
+                            console.log('Mission updated in Firestore:', editingId);
+                        } catch (firestoreError) {
+                            console.error('Firestore update failed:', firestoreError);
+                            alert('Missão atualizada localmente, mas não foi possível gravar no Firestore: ' + firestoreError.message);
+                        }
+                    }
+                    alert('Missão atualizada com sucesso!');
+                }
+                
+                delete form.dataset.editingId;
+                const submitBtn = form.querySelector('button[type="submit"]');
+                if (submitBtn) submitBtn.textContent = 'Cadastrar Missão';
+                const cancelBtn = document.getElementById('cancel-edit-mission-btn');
+                if (cancelBtn) cancelBtn.classList.add('hidden');
+
+            } else {
+                // Create new
+                const newMission = {
+                    id: Date.now().toString(),
+                    name,
+                    frequency,
+                    description,
+                    points,
+                    icon,
+                    color,
+                    validationType,
+                    active,
+                    surprise,
+                    discountType,
+                    durationHours: surprise ? durationHours : null,
+                    expiresAt,
+                    createdAt: new Date().toISOString()
+                };
+
+                missions.push(newMission);
+                localStorage.setItem('moura_leite_missions', JSON.stringify(missions));
+
+                if (dbAvailable && missionsCollection) {
+                    try {
+                        await missionsCollection.doc(newMission.id).set(newMission);
+                        console.log('Mission persisted to Firestore:', newMission.id);
+                    } catch (firestoreError) {
+                        console.error('Firestore write failed:', firestoreError);
+                        alert('Missão salva localmente, mas não foi possível gravar no Firestore: ' + firestoreError.message);
+                    }
+                } else {
+                    console.warn('Firestore unavailable, mission saved only locally.');
+                }
+                alert('Missão cadastrada com sucesso!');
+            }
+            
+            // Reset form
+            form.reset();
+            document.getElementById('mission-color').value = '#1976d2';
+            document.getElementById('mission-icon').value = '';
+            // Reset preview
+            const previewBox = document.getElementById('mission-icon-preview');
+            if (previewBox) previewBox.innerHTML = getIconHTML('fa-question', '#1976d2');
+            renderCustomMissions();
+            if (typeof renderAdminMissionsList === 'function') renderAdminMissionsList();
+        } catch (error) {
+            console.error('Erro ao salvar missão:', error);
+            alert('Erro ao salvar missão: ' + error.message);
+        }
+    };
+
+    window.deleteMission = async (missionId) => {
+        if (!confirm('Deseja excluir esta missão permanentemente?')) return;
+        const missions = JSON.parse(localStorage.getItem('moura_leite_missions')) || [];
+        const updated = missions.filter(m => m.id !== missionId);
+        localStorage.setItem('moura_leite_missions', JSON.stringify(updated));
+        if (dbAvailable && missionsCollection) {
+            try {
+                await missionsCollection.doc(missionId).delete();
+            } catch (e) {
+                console.error('Erro ao excluir missão no Firestore:', e);
+            }
+        }
+        renderCustomMissions();
+        if (typeof renderAdminMissionsList === 'function') renderAdminMissionsList();
+        alert('Missão excluída com sucesso.');
+    };
+
+    window.editMission = async (missionId) => {
+        const missions = JSON.parse(localStorage.getItem('moura_leite_missions')) || [];
+        const mission = missions.find(m => m.id === missionId);
+        if (!mission) return alert('Missão não encontrada.');
+
+        document.getElementById('mission-name').value = mission.name || '';
+        document.getElementById('mission-frequency').value = mission.frequency || '';
+        document.getElementById('mission-description').value = mission.description || '';
+        document.getElementById('mission-points').value = mission.points || '';
+        document.getElementById('mission-icon').value = mission.icon || '';
+        document.getElementById('mission-color').value = mission.color || '#1976d2';
+        document.getElementById('mission-validation-type').value = mission.validationType || '';
+        document.getElementById('mission-active').checked = mission.active !== false;
+        document.getElementById('mission-surprise').checked = mission.surprise || false;
+        document.getElementById('mission-discount-type').value = mission.discountType || '';
+        document.getElementById('mission-duration').value = mission.durationHours || '';
+
+        // Trigger preview update
+        const iconSelect = document.getElementById('mission-icon');
+        if (iconSelect) {
+            const event = new Event('change');
+            iconSelect.dispatchEvent(event);
+        }
+
+        // Set editing state
+        const form = document.getElementById('mission-form');
+        form.dataset.editingId = mission.id;
+        
+        // Change submit button text
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.textContent = 'Salvar Alterações';
+        }
+        
+        // Show cancel button
+        const cancelBtn = document.getElementById('cancel-edit-mission-btn');
+        if (cancelBtn) cancelBtn.classList.remove('hidden');
+
+        // Switch to admin missions page and scroll to top
+        showPage('admin-missions');
+        window.scrollTo(0, 0);
+    };
+
+    // Admin Prizes Logic
+    const prizesCollection = dbAvailable && dbInstance ? dbInstance.collection('custom_prizes') : null;
+    let sharedPrizeCache = [];
+
+    const getPrizeData = () => {
+        const localPrizes = JSON.parse(localStorage.getItem('moura_leite_prizes')) || [];
+        if (dbAvailable && sharedPrizeCache.length > 0) {
+            return sharedPrizeCache;
+        }
+        return localPrizes;
+    };
+
+    const seedDefaultPrizes = () => {
+        const SEED_VERSION = 'moura_leite_prizes_seeded_v1';
+        if (!localStorage.getItem(SEED_VERSION)) {
+            const defaults = [
+                { id: 'prize_caneca', name: 'Caneca Personalizada', points: 450, icon: 'fa-mug-hot', color: '#f39c12', active: true, order: 1, createdAt: new Date().toISOString() },
+                { id: 'prize_caderno', name: 'Caderno de Anotações', points: 300, icon: 'fa-book', color: '#1976d2', active: true, order: 2, createdAt: new Date().toISOString() },
+                { id: 'prize_garrafa', name: 'Garrafa Térmica', points: 650, icon: 'fa-bottle-water', color: '#2ecc71', active: true, order: 3, createdAt: new Date().toISOString() },
+                { id: 'prize_bone', name: 'Boné Moura Leite', points: 300, icon: 'svg-cap', color: '#9b59b6', active: true, order: 4, createdAt: new Date().toISOString() },
+                { id: 'prize_oculos', name: 'Óculos de Sol', points: 450, icon: 'fa-glasses', color: '#e74c3c', active: true, order: 5, createdAt: new Date().toISOString() }
+            ];
+            
+            let prizes = JSON.parse(localStorage.getItem('moura_leite_prizes')) || [];
+            defaults.forEach(d => {
+                const idx = prizes.findIndex(p => p.id === d.id);
+                if (idx === -1) {
+                    prizes.push(d);
+                }
+            });
+            localStorage.setItem('moura_leite_prizes', JSON.stringify(prizes));
+            localStorage.setItem(SEED_VERSION, 'true');
+            
+            if (dbAvailable && prizesCollection) {
+                defaults.forEach(async d => {
+                    try {
+                        const docRef = prizesCollection.doc(d.id);
+                        const docSnap = await docRef.get();
+                        if (!docSnap.exists) {
+                            await docRef.set(d, {merge: true});
+                        }
+                    } catch (e) {
+                        console.warn('Error seeding prize:', e);
+                    }
+                });
+            }
+        }
+    };
+
+    const subscribeSharedPrizes = () => {
+        if (!dbAvailable || !prizesCollection) return;
+        prizesCollection.orderBy('createdAt', 'asc').onSnapshot({ includeMetadataChanges: true }, (snapshot) => {
+            // Skip events triggered by local writes (e.g. our own stock decrement transaction)
+            // to avoid reverting optimistic UI updates before Firestore confirms
+            if (snapshot.metadata.hasPendingWrites) return;
+
+            if (!snapshot.empty) {
+                sharedPrizeCache = [];
+                snapshot.forEach((doc) => {
+                    sharedPrizeCache.push(doc.data());
+                });
+                localStorage.setItem('moura_leite_prizes', JSON.stringify(sharedPrizeCache));
+            }
+            renderCustomPrizes();
+            if (typeof renderAdminPrizesList === 'function') renderAdminPrizesList();
+        }, (error) => {
+            console.error('Error syncing shared prizes:', error);
+            renderCustomPrizes();
+            if (typeof renderAdminPrizesList === 'function') renderAdminPrizesList();
+        });
+    };
+
+    const registerPrizeFormListener = () => {
+        const form = document.getElementById('prize-form');
+        if (form && !form.hasListener) {
+            form.addEventListener('submit', handlePrizeSubmit);
+            
+            const iconSelect = document.getElementById('prize-icon');
+            const colorInput = document.getElementById('prize-color');
+            const imgInput = document.getElementById('prize-image');
+            const previewBox = document.getElementById('prize-preview');
+
+            const updatePreview = () => {
+                if (!previewBox) return;
+                const color = colorInput.value || '#006837';
+                
+                if (imgInput.files && imgInput.files[0]) {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        previewBox.innerHTML = `<img src="${e.target.result}" style="max-width: 100%; max-height: 100%; object-fit: contain;">`;
+                        form.dataset.imageB64 = e.target.result;
+                    };
+                    reader.readAsDataURL(imgInput.files[0]);
+                } else if (form.dataset.imageB64 && (!iconSelect.value || iconSelect.value === '')) {
+                    previewBox.innerHTML = `<img src="${form.dataset.imageB64}" style="max-width: 100%; max-height: 100%; object-fit: contain;">`;
+                } else {
+                    const iconValue = iconSelect.value;
+                    if (iconValue) {
+                        form.dataset.imageB64 = ''; 
+                    }
+                    previewBox.innerHTML = getIconHTML(iconValue || 'fa-gift', color);
+                }
+            };
+
+            if (iconSelect) iconSelect.addEventListener('change', () => { imgInput.value = ''; updatePreview(); });
+            if (colorInput) colorInput.addEventListener('input', updatePreview);
+            if (imgInput) imgInput.addEventListener('change', () => { iconSelect.value = ''; updatePreview(); });
+
+            const cancelBtn = document.getElementById('cancel-edit-prize-btn');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => {
+                    form.reset();
+                    if (document.getElementById('prize-desc')) document.getElementById('prize-desc').value = '';
+                    delete form.dataset.editingId;
+                    delete form.dataset.imageB64;
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    if (submitBtn) submitBtn.textContent = 'Cadastrar Prêmio';
+                    cancelBtn.classList.add('hidden');
+                    updatePreview();
+                });
+            }
+            form.hasListener = true;
+        }
+    };
+
+    const renderCustomPrizes = () => {
+        const gridContainer = document.getElementById('store-grid-container');
+        if (!gridContainer) return;
+        
+        gridContainer.querySelectorAll('.custom-prize-card').forEach(card => card.remove());
+
+        const prizes = getPrizeData()
+            .filter(p => p.active)
+            .sort((a, b) => (parseInt(a.order) || 0) - (parseInt(b.order) || 0));
+        
+        prizes.forEach(prize => {
+            const isBase64 = prize.image && prize.image.startsWith('data:image');
+            const imgHTML = isBase64 
+                ? `<div class="item-img"><img src="${prize.image}" style="max-width: 90%; max-height: 120px; object-fit: contain; border-radius: 8px;"></div>`
+                : `<div class="item-img">${getIconHTML(prize.icon || 'fa-gift', prize.color || '#006837')}</div>`;
+            
+            // Stock logic: -1 = unlimited, 0 = sold out, >0 = available
+            const qty = (prize.quantity === undefined || prize.quantity === null) ? -1 : parseInt(prize.quantity);
+            const isSoldOut = qty === 0;
+            const isUnlimited = qty === -1;
+
+            const cooldownDays = prize.cooldownDays || 0;
+            let isOnCooldown = false;
+            let cooldownRemainingStr = '';
+            
+            if (cooldownDays > 0) {
+                const lastBought = storedUser['lastBoughtPrize_' + prize.id];
+                if (lastBought) {
+                    // Try to use a valid now timestamp. Assuming getServerTime returns valid ms.
+                    const now = typeof getServerTime === 'function' ? getServerTime() : Date.now();
+                    const diffMs = now - lastBought;
+                    const cooldownMs = cooldownDays * 24 * 60 * 60 * 1000;
+                    if (diffMs < cooldownMs) {
+                        isOnCooldown = true;
+                        const remainingMs = cooldownMs - diffMs;
+                        const remainingDays = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
+                        cooldownRemainingStr = `${remainingDays} dia(s)`;
+                    }
+                }
+            }
+            
+            let stockBadgeHTML = '';
+            if (isOnCooldown) {
+                stockBadgeHTML = `<div class="stock-badge stock-badge--low" style="background: #ff980020; color: #f57c00; border-color: #ff980040;"><i class="fa-solid fa-clock"></i> Libera em ${cooldownRemainingStr}</div>`;
+            } else if (isSoldOut) {
+                stockBadgeHTML = `<div class="stock-badge stock-badge--esgotado"><i class="fa-solid fa-ban"></i> Esgotado</div>`;
+            } else if (!isUnlimited && qty <= 5) {
+                stockBadgeHTML = `<div class="stock-badge stock-badge--low"><i class="fa-solid fa-box-open"></i> Últimas ${qty} unidades</div>`;
+            } else if (!isUnlimited) {
+                stockBadgeHTML = `<div class="stock-badge stock-badge--available"><i class="fa-solid fa-box"></i> ${qty} em estoque</div>`;
+            }
+
+            const isButtonDisabled = isSoldOut || isOnCooldown;
+            const buttonText = isOnCooldown ? 'No Prazo' : (isSoldOut ? 'Esgotado' : 'Trocar');
+
+            const html = `
+                <div class="store-card custom-prize-card${isSoldOut ? ' store-card--esgotado' : ''}">
+                    ${stockBadgeHTML}
+                    ${imgHTML}
+                    <h3>${prize.name}</h3>
+                    ${prize.desc ? `<p class="store-card-desc">${prize.desc}</p>` : ''}
+                    <div class="item-footer">
+                        <span class="price" style="display:flex; align-items:center; gap:4px; justify-content:center;">
+                            ${prize.points}
+                            <svg viewBox="0 0 100 100" width="18" height="18" style="filter: drop-shadow(0 1px 1px rgba(0,0,0,0.2));">
+                                <circle cx="68" cy="30" r="28" fill="#F1863B" />
+                                <ellipse cx="38" cy="38" rx="16" ry="14" fill="#2E7D32" />
+                                <ellipse cx="55" cy="32" rx="14" ry="13" fill="#388E3C" />
+                                <ellipse cx="68" cy="38" rx="15" ry="13" fill="#2E7D32" />
+                                <ellipse cx="50" cy="28" rx="13" ry="12" fill="#43A047" />
+                                <ellipse cx="42" cy="44" rx="12" ry="10" fill="#388E3C" />
+                                <ellipse cx="62" cy="44" rx="12" ry="10" fill="#2E7D32" />
+                                <ellipse cx="52" cy="22" rx="10" ry="9" fill="#4CAF50" />
+                                <path d="M 46 50 L 42 78 C 42 80 44 82 50 82 C 56 82 58 80 58 78 L 54 50 Z" fill="#1B5E20" />
+                                <line x1="22" y1="82" x2="78" y2="82" stroke="#1B5E20" stroke-width="3" stroke-linecap="round" />
+                            </svg>
+                        </span>
+                        <button class="btn-buy" ${isButtonDisabled ? 'disabled' : ''} onclick="buyItem('${prize.name}', ${prize.points}, '${prize.id}')">${buttonText}</button>
+                    </div>
+                </div>
+            `;
+            const boostCard = document.getElementById('boost-card');
+            if (boostCard) {
+                boostCard.insertAdjacentHTML('beforebegin', html);
+            } else {
+                gridContainer.insertAdjacentHTML('beforeend', html);
+            }
+        });
+    };
+
+    const renderAdminPrizesList = () => {
+        const body = document.getElementById('admin-prizes-list-body');
+        if (!body) return;
+
+        const prizes = getPrizeData().sort((a, b) => (parseInt(a.order) || 0) - (parseInt(b.order) || 0));
+        if (prizes.length === 0) {
+            body.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #999;">Nenhum prêmio cadastrado.</td></tr>';
+            return;
+        }
+
+        body.innerHTML = prizes.map(prize => {
+            const qty = (prize.quantity === undefined || prize.quantity === null) ? -1 : parseInt(prize.quantity);
+            const stockLabel = qty === -1 ? '<span style="color:#999;">Ilimitado</span>' : qty === 0 ? '<span style="color:#f44336; font-weight:700;">Esgotado</span>' : `<span style="color:${qty <= 5 ? '#e67e22' : '#4caf50'}; font-weight:700;">${qty} un.</span>`;
+            return `
+            <tr>
+                <td><strong>${prize.order || 0}</strong></td>
+                <td><strong>${prize.name}</strong></td>
+                <td>${prize.points} ML Coins</td>
+                <td>${stockLabel}</td>
+                <td><span class="status-badge ${prize.active ? 'status-unlocked' : 'status-locked'}">${prize.active ? 'Ativo' : 'Inativo'}</span></td>
+                <td>
+                    <div style="display:flex; gap:5px; flex-wrap:wrap;">
+                        <button onclick="editPrize('${prize.id}')" class="btn-buy" style="padding:4px 8px; font-size:10px;">Editar</button>
+                        <button onclick="deletePrize('${prize.id}')" class="btn-buy" style="padding:4px 8px; font-size:10px; background:#d32f2f;">Excluir</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+        }).join('');
+    };
+
+    const handlePrizeSubmit = async (e) => {
+        e.preventDefault();
+        
+        const form = document.getElementById('prize-form');
+        const editingId = form.dataset.editingId;
+        const name = document.getElementById('prize-name').value;
+        const points = parseInt(document.getElementById('prize-points').value);
+        const desc = document.getElementById('prize-desc') ? document.getElementById('prize-desc').value : '';
+        const icon = document.getElementById('prize-icon').value;
+        const color = document.getElementById('prize-color').value;
+        const active = document.getElementById('prize-active').checked;
+        const order = parseInt(document.getElementById('prize-order').value) || 0;
+        const quantityRaw = document.getElementById('prize-quantity') ? parseInt(document.getElementById('prize-quantity').value) : -1;
+        const quantity = isNaN(quantityRaw) ? -1 : quantityRaw;
+        const cooldownRaw = document.getElementById('prize-cooldown') ? parseInt(document.getElementById('prize-cooldown').value) : 0;
+        const cooldownDays = isNaN(cooldownRaw) ? 0 : cooldownRaw;
+        const imageB64 = form.dataset.imageB64 || null;
+
+        try {
+            const prizes = JSON.parse(localStorage.getItem('moura_leite_prizes')) || [];
+            
+            const prizeObj = {
+                name,
+                points,
+                desc,
+                icon,
+                color,
+                active,
+                order,
+                quantity,
+                cooldownDays,
+                updatedAt: new Date().toISOString()
+            };
+            if (imageB64) prizeObj.image = imageB64;
+
+            if (editingId) {
+                const index = prizes.findIndex(p => p.id === editingId);
+                if (index !== -1) {
+                    const updated = { ...prizes[index], ...prizeObj };
+                    
+                    if (imageB64) {
+                        updated.image = imageB64;
+                        delete updated.icon;
+                    } else if (icon) {
+                        updated.icon = icon;
+                        delete updated.image;
+                    }
+
+                    const hadImage = !!prizes[index].image;
+                    const hadIcon = !!prizes[index].icon;
+
+                    // remove undefined
+                    Object.keys(updated).forEach(key => updated[key] === undefined && delete updated[key]);
+
+                    prizes[index] = updated;
+                    localStorage.setItem('moura_leite_prizes', JSON.stringify(prizes));
+                    
+                    renderCustomPrizes();
+                    if (typeof renderAdminPrizesList === 'function') renderAdminPrizesList();
+
+                    if (dbAvailable && prizesCollection) {
+                        try {
+                            const dbUpdate = { ...updated };
+                            if (icon && hadImage) {
+                                dbUpdate.image = firebase.firestore.FieldValue.delete();
+                            } else if (imageB64 && hadIcon) {
+                                dbUpdate.icon = firebase.firestore.FieldValue.delete();
+                            }
+                            await prizesCollection.doc(editingId).set(dbUpdate, { merge: true });
+                        } catch (e) {
+                            console.warn("Firestore error, mas salvo localmente:", e);
+                        }
+                    }
+                    alert('Prêmio atualizado com sucesso!');
+                }
+                delete form.dataset.editingId;
+                const submitBtn = form.querySelector('button[type="submit"]');
+                if (submitBtn) submitBtn.textContent = 'Cadastrar Prêmio';
+                const cancelBtn = document.getElementById('cancel-edit-prize-btn');
+                if (cancelBtn) cancelBtn.classList.add('hidden');
+            } else {
+                const newPrize = {
+                    id: Date.now().toString(),
+                    ...prizeObj,
+                    createdAt: new Date().toISOString()
+                };
+                prizes.push(newPrize);
+                localStorage.setItem('moura_leite_prizes', JSON.stringify(prizes));
+                
+                renderCustomPrizes();
+                if (typeof renderAdminPrizesList === 'function') renderAdminPrizesList();
+
+                if (dbAvailable && prizesCollection) {
+                    try {
+                        await prizesCollection.doc(newPrize.id).set(newPrize);
+                    } catch (e) {
+                        console.warn("Firestore error, mas salvo localmente:", e);
+                    }
+                }
+                alert('Prêmio cadastrado com sucesso!');
+            }
+
+            form.reset();
+            document.getElementById('prize-color').value = '#006837';
+            document.getElementById('prize-icon').value = 'fa-gift';
+            delete form.dataset.imageB64;
+            const previewBox = document.getElementById('prize-preview');
+            if (previewBox) previewBox.innerHTML = '<i class="fa-solid fa-gift" style="color: #006837;"></i>';
+            
+            renderCustomPrizes();
+            if (typeof renderAdminPrizesList === 'function') renderAdminPrizesList();
+
+        } catch (error) {
+            console.error('Erro ao salvar prêmio:', error);
+            alert('Erro ao salvar prêmio: ' + error.message);
+        }
+    };
+
+    window.deletePrize = async (prizeId) => {
+        if (!confirm('Deseja excluir este prêmio permanentemente?')) return;
+        const prizes = JSON.parse(localStorage.getItem('moura_leite_prizes')) || [];
+        const updated = prizes.filter(p => p.id !== prizeId);
+        localStorage.setItem('moura_leite_prizes', JSON.stringify(updated));
+        if (dbAvailable && prizesCollection) {
+            try { await prizesCollection.doc(prizeId).delete(); } catch(e){}
+        }
+        renderCustomPrizes();
+        if (typeof renderAdminPrizesList === 'function') renderAdminPrizesList();
+        alert('Prêmio excluído com sucesso.');
+    };
+
+    window.editPrize = async (prizeId) => {
+        const prizes = JSON.parse(localStorage.getItem('moura_leite_prizes')) || [];
+        const prize = prizes.find(p => p.id === prizeId);
+        if (!prize) return alert('Prêmio não encontrado.');
+
+        document.getElementById('prize-name').value = prize.name || '';
+        document.getElementById('prize-points').value = prize.points || '';
+        if (document.getElementById('prize-desc')) document.getElementById('prize-desc').value = prize.desc || '';
+        document.getElementById('prize-icon').value = prize.icon || '';
+        document.getElementById('prize-color').value = prize.color || '#006837';
+        document.getElementById('prize-active').checked = prize.active !== false;
+        document.getElementById('prize-order').value = prize.order || 0;
+        if (document.getElementById('prize-quantity')) {
+            const qty = (prize.quantity === undefined || prize.quantity === null) ? -1 : prize.quantity;
+            document.getElementById('prize-quantity').value = qty;
+        }
+        if (document.getElementById('prize-cooldown')) {
+            document.getElementById('prize-cooldown').value = prize.cooldownDays || 0;
+        }
+
+        const form = document.getElementById('prize-form');
+        form.dataset.editingId = prize.id;
+        
+        if (prize.image) {
+            form.dataset.imageB64 = prize.image;
+        }
+
+        const iconSelect = document.getElementById('prize-icon');
+        if (iconSelect) iconSelect.dispatchEvent(new Event('change'));
+
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) submitBtn.textContent = 'Salvar Alterações';
+        const cancelBtn = document.getElementById('cancel-edit-prize-btn');
+        if (cancelBtn) cancelBtn.classList.remove('hidden');
+
+        showPage('admin-prizes');
+        window.scrollTo(0, 0);
+    };
+
+    window.resetUserPassword = async (email) => {
+        const newPass = prompt(`Digite a nova senha para o usuário:`);
+        if (newPass) {
+            try {
+                await db.collection("users").doc(email).update({ password: newPass });
+                alert(`Senha alterada com sucesso!`);
+                addNotification(`Senha resetada pelo administrador.`);
+            } catch (e) {
+                console.error(e);
+                alert("Erro ao alterar senha.");
+            }
+        }
+    };
+
+    window.toggleUserStatus = async (email) => {
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        const user = allUsers.find(u => u.email === email);
+        if (user) {
+            try {
+                await db.collection("users").doc(email).update({ disabled: !user.disabled });
+            } catch (e) {
+                console.error(e);
+                alert("Erro ao alterar status.");
+            }
+        }
+    };
+
+    window.reconcileAllUsersPoints = async () => {
+        if (!confirm("⚠️ ATENÇÃO: Esta ferramenta irá ler o histórico de todos os usuários e recalcular os ML Coins totais com base nas missões concluídas. Isso irá sobrescrever os valores atuais no Firebase. Deseja continuar?")) return;
+        
+        const btn = event.target.closest('button');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processando...';
+
+        try {
+            const usersSnap = await db.collection("users").get();
+            const pointValues = {
+                'Check-in Diário': 1,
+                'Almoço Moura Leite': 5,
+                'Reunião de Integração': 8,
+                'Embaixador Digital': 15,
+                'Engajamento Viva Engage': 12,
+                'Dinâmica de Jogos': 20
+            };
+
+            let fixedCount = 0;
+
+            for (const doc of usersSnap.docs) {
+                const user = doc.data();
+                const history = user.history || [];
+                let calculatedPoints = 0;
+
+                history.forEach(tx => {
+                    // Only count successful/valid transactions
+                    if (tx.status === 'Concluído' || tx.status === 'Validando' || tx.status === 'Ativo') {
+                        // 1. Try to parse points from the new format: "item (+X pts)" or "item (-X pts)"
+                        const earnedMatch = tx.item.match(/\(\+(\d+)\s+(?:pts|ML Coins|Moura Coins)\)/);
+                        const spentMatch = tx.item.match(/\(\-(\d+)\s+(?:pts|ML Coins|Moura Coins)\)/);
+
+                        if (earnedMatch) {
+                            calculatedPoints += parseInt(earnedMatch[1]);
+                        } else if (spentMatch) {
+                            calculatedPoints -= parseInt(spentMatch[1]);
+                        } else {
+                            // 2. Legacy format - guess based on mission name
+                            for (const [name, val] of Object.entries(pointValues)) {
+                                if (tx.item.includes(name)) {
+                                    calculatedPoints += val;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Update server if different
+                if (calculatedPoints !== (user.points || 0)) {
+                    await db.collection("users").doc(user.email).update({ points: calculatedPoints });
+                    fixedCount++;
+                }
+            }
+
+            alert(`✅ Sucesso! Auditoria finalizada. ${fixedCount} usuários tiveram seus ML Coins corrigidos.`);
+        } catch (error) {
+            console.error("Erro na auditoria:", error);
+            alert("Erro ao processar auditoria. Verifique o console.");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    };
+
+    window.deleteUser = async (email) => {
+        if (confirm(`Tem certeza que deseja EXCLUIR permanentemente o usuário ${email}?`)) {
+            try {
+                await db.collection("users").doc(email).delete();
+                alert('Usuário excluído!');
+            } catch (e) {
+                console.error(e);
+                alert("Erro ao excluir.");
+            }
+        }
+    };
+
+    window.editUser = async (email) => {
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        const user = allUsers.find(u => u.email === email);
+        if (user) {
+            document.getElementById('edit-user-email').value = user.email;
+            document.getElementById('edit-user-email-label').innerText = user.email;
+            document.getElementById('edit-user-name').value = user.username || '';
+            document.getElementById('edit-user-points').value = user.points || 0;
+            document.getElementById('edit-user-dept').value = user.dept || '';
+            document.getElementById('edit-user-dir').value = user.diretoria || '';
+            
+            document.getElementById('edit-user-modal').classList.remove('hidden');
+        }
+    };
+
+    let userPoints = parseInt(storedUser.points) || 0;
+    const pointsElement = document.getElementById('user-points');
+    
+    // Visit Tracking (Cumulative Days)
+    const today = todayStr;
+    const lastVisit = storedUser.lastVisit;
+
+    if (lastVisit !== today) {
+        storedUser.streak = (storedUser.streak || 0) + 1;
+        storedUser.visitCount = (storedUser.visitCount || 0) + 1;
+        storedUser.lastVisit = today;
+        localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+        
+        // Sincroniza direto no Firestore para evitar que o onSnapshot delete a chave "lastVisit"
+        if (dbAvailable && storedUser.email) {
+            db.collection('users').doc(storedUser.email).update({
+                streak: storedUser.streak,
+                visitCount: storedUser.visitCount,
+                lastVisit: storedUser.lastVisit
+            }).catch(e => console.warn('Erro ao salvar visita no db:', e));
+        }
+    }
+
+    // Rank Definitions — Níveis baseados em UTILIZAÇÃO de pontos (gastos na loja/boost)
+    const ranks = [
+        { name: 'Iniciante', min: 0, next: 500, icon: 'fa-seedling', class: 'rank-iniciante', multiplier: 1.0 },
+        { name: 'Bronze', min: 501, next: 1500, icon: 'fa-medal', class: 'rank-bronze', multiplier: 1.1 },
+        { name: 'Prata', min: 1501, next: 3000, icon: 'fa-award', class: 'rank-prata', multiplier: 1.2 },
+        { name: 'Ouro', min: 3001, next: 6000, icon: 'fa-trophy', class: 'rank-ouro', multiplier: 1.5 },
+        { name: 'Platina', min: 6001, next: 10000, icon: 'fa-crown', class: 'rank-platina', multiplier: 2.0 },
+        { name: 'Diamante', min: 10001, next: Infinity, icon: 'fa-gem', class: 'rank-diamante', multiplier: 1.0 }
+    ];
+
+    // ── Calcula total de pontos GASTOS pelo usuário (loja + boost) ────────────
+    const getUserSpentPoints = () => {
+        const history = storedUser.history || [];
+        let spent = 0;
+        history.forEach(tx => {
+            // Ignora transações recusadas/canceladas
+            if (tx.status === 'Recusado' || tx.status === 'Cancelado') return;
+            const spentMatch = (tx.item || '').match(/\(-(\d+)\s*(?:pts|ML Coins|Moura Coins)\)/);
+            if (spentMatch) {
+                spent += parseInt(spentMatch[1]);
+            }
+        });
+        return spent;
+    };
+
+    // ── Multiplicador Base e Boost de Pontos ────────────────────────────────────
+    const _baseMultiplier = () => {
+        const spentPts = getUserSpentPoints();
+        const currentRankObj = ranks.find((r, i) => spentPts <= r.next) || ranks[ranks.length-1];
+        return currentRankObj.multiplier || 1.0;
+    };
+
+    const getCurrentMultiplier = () => {
+        const base = _baseMultiplier();
+        // Check if boost is active using server-synced time
+        if (storedUser.boostActiveUntil && getServerTime() < storedUser.boostActiveUntil) {
+            return base * 2;
+        }
+        return base;
+    };
+
+    // Update UI with User Data
+    // ── Level-up announcement dedup guard ────────────────────────────────────
+    // Tracks which rank has already been announced to the social wall in this
+    // browser session. Because updateUIWithUser() is called from many places
+    // (Firebase onSnapshot, prize redemption, page init, etc.) it can be
+    // invoked several times in rapid succession after a level-up event.
+    // Without this guard, the race condition between two onSnapshot deliveries
+    // (the optimistic "local" write + the server confirmation) would make
+    // logSocialActivity fire twice, creating a duplicate mural entry.
+    let _levelUpAnnouncedFor = storedUser.rank || null;
+
+    // ── Backfill guard: tracks which ranks have already been checked/backfilled
+    // in this browser session to avoid repeated Firestore queries.
+    const _backfillCheckedRanks = new Set();
+
+    const updateUIWithUser = () => {
+        // Find Current Rank based on SPENT points (utilização)
+        const spentPts = getUserSpentPoints();
+        const currentRankObj = ranks.find((r, i) => spentPts <= r.next) || ranks[ranks.length-1];
+        const nextRankObj = ranks[ranks.indexOf(currentRankObj) + 1] || currentRankObj;
+        
+        // ── Level-up detection ───────────────────────────────────────────────────
+        // We compare the NEW calculated rank against the PREVIOUSLY STORED rank
+        // (persisted in localStorage). Since Firebase sync no longer overwrites the
+        // 'rank' field (fixed earlier), storedUser.rank from localStorage is always
+        // the last value computed by THIS function — never a stale server value.
+        //
+        // This means the detection works correctly even across page reloads:
+        //   - Session 1: user spends coins → rank updated to 'Bronze' → saved to localStorage
+        //   - Session 2: page loads → previousRank = 'Bronze' (from localStorage) → no false event
+        //   - Session 2: user spends more → rank becomes 'Prata' → event fires ✅
+        const previousRank = storedUser.rank || null;
+        storedUser.rank = currentRankObj.name;
+
+        // Persist the newly calculated rank to localStorage IMMEDIATELY so that:
+        // a) The next page load correctly reads it as previousRank
+        // b) Any subsequent sync that saves storedUser also includes the fresh rank
+        try {
+            localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+        } catch(e) {}
+
+        if (previousRank && previousRank !== currentRankObj.name) {
+            const prevIndex = ranks.findIndex(r => r.name === previousRank);
+            const currIndex = ranks.findIndex(r => r.name === currentRankObj.name);
+            if (currIndex > prevIndex) {
+                // DEDUP GUARD: only announce if we haven't already announced this
+                // exact rank level in this browser session. This prevents duplicate
+                // mural posts when multiple onSnapshot events fire back-to-back.
+                if (_levelUpAnnouncedFor !== currentRankObj.name) {
+                    _levelUpAnnouncedFor = currentRankObj.name;
+                    _backfillCheckedRanks.add(currentRankObj.name); // mark as handled
+                    logSocialActivity(`atingiu o nível ${currentRankObj.name}! 🚀`, currentRankObj.icon);
+                }
+            }
+        }
+
+        // ── Backfill: ensure the social_feed entry exists for the current rank ──
+        // This catches cases where the user leveled up in a previous session but
+        // the social_feed write failed silently (e.g., due to the old composite
+        // index bug). Without this, those users would NEVER appear on the mural
+        // because previousRank already equals currentRankObj.name on subsequent loads.
+        if (dbAvailable && currentRankObj.name !== 'Iniciante' && !_backfillCheckedRanks.has(currentRankObj.name)) {
+            _backfillCheckedRanks.add(currentRankObj.name);
+            const expectedAction = `atingiu o nível ${currentRankObj.name}! 🚀`;
+            // Fire-and-forget async check
+            (async () => {
+                try {
+                    const snap = await db.collection('social_feed')
+                        .where('user', '==', storedUser.username)
+                        .get();
+                    const alreadyExists = snap.docs.some(d => d.data().action === expectedAction);
+                    if (!alreadyExists) {
+                        console.log(`[Backfill] Criando entrada no mural para "${storedUser.username}" → "${expectedAction}"`);
+                        _levelUpAnnouncedFor = currentRankObj.name;
+                        await db.collection('social_feed').add({
+                            user: storedUser.username,
+                            action: expectedAction,
+                            icon: currentRankObj.icon || 'fa-star',
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                } catch (backfillErr) {
+                    console.warn('[Backfill] Erro ao verificar/criar entrada no mural:', backfillErr);
+                }
+            })();
+        }
+
+        // Update Sidebar
+        const sidebarName = document.querySelector('.user-info .name');
+        const sidebarRank = document.querySelector('.user-info .rank');
+        const userAvatar = document.getElementById('user-avatar-img');
+        const streakElement = document.getElementById('user-streak');
+        
+        if (sidebarName) sidebarName.textContent = storedUser.username;
+        if (sidebarRank) sidebarRank.textContent = storedUser.rank;
+        if (userAvatar) {
+            userAvatar.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(storedUser.username)}&background=006837&color=fff`;
+        }
+        if (streakElement) {
+            streakElement.textContent = `${storedUser.streak || 1} Dias`;
+        }
+
+        // Update Hero Progress
+        const heroTitle = document.querySelector('.hero-text h1');
+        // BUG FIX: use the element's id instead of the generic '.hero-text p' selector
+        // so the dynamic text correctly overwrites the static HTML placeholder.
+        const heroSub = document.getElementById('hero-rank-msg') || document.querySelector('.hero-text p');
+        const rankFill = document.querySelector('.rank-bar-fill');
+        const rankLabels = document.querySelectorAll('.rank-labels span');
+        const rankStatusText = document.querySelector('.rank-status');
+        const heroRankIcon = document.getElementById('hero-rank-icon');
+
+        if (heroTitle) heroTitle.textContent = `Olá, ${storedUser.username.split(' ')[0]}! 👋`;
+        
+        // Inject Hero Rank Icon
+        if (heroRankIcon) {
+            heroRankIcon.innerHTML = `<i class="fa-solid ${currentRankObj.icon}"></i>`;
+            heroRankIcon.className = `hero-rank-badge ${currentRankObj.class}`;
+        }
+        
+        if (currentRankObj !== nextRankObj) {
+            const pointsForNext = nextRankObj.min - spentPts;
+            if (heroSub) heroSub.innerHTML = `Resgate mais <strong>${pointsForNext} ML Coins</strong> em prêmios para subir ao nível <strong>${nextRankObj.name}</strong>.`;
+            
+            // Progress Bar Logic
+            const range = nextRankObj.min - currentRankObj.min;
+            const progress = ((spentPts - currentRankObj.min) / range) * 100;
+            if (rankFill) rankFill.style.width = `${Math.max(5, progress)}%`;
+            if (rankLabels.length >= 2) {
+                rankLabels[0].textContent = currentRankObj.name;
+                rankLabels[1].textContent = nextRankObj.name;
+            }
+            if (rankStatusText) rankStatusText.textContent = `${Math.floor(progress)}% concluído`;
+        } else {
+            if (heroSub) heroSub.innerHTML = `Parabéns! Você atingiu o nível máximo: <strong>${currentRankObj.name}</strong>.`;
+            if (rankFill) rankFill.style.width = '100%';
+            if (rankStatusText) rankStatusText.textContent = 'Nível Máximo Atingido';
+            if (rankLabels.length >= 2) {
+                const prevRank = ranks[ranks.indexOf(currentRankObj) - 1] || currentRankObj;
+                rankLabels[0].textContent = prevRank.name;
+                rankLabels[1].textContent = currentRankObj.name;
+            }
+        }
+
+        // Update Goals Widget (Dynamic Integration)
+        const metaText = document.getElementById('meta-text');
+        const metaPercent = document.getElementById('meta-percent');
+        const metaStatus = document.getElementById('meta-status');
+        const circle = document.getElementById('main-progress');
+
+        const totalGoals = 6;
+        let completedGoals = 0;
+
+        // Check Goal 1: Daily Check-in
+        if (storedUser.lastCheckIn === todayStr || storedUser['lastCustomDaily_sys_checkin'] === todayStr) completedGoals++;
+
+        // Check Goal 2: Weekly Lunch/Integração entre Times
+        if (storedUser.lastLunchWeek === currentWeek || storedUser['lastCustomWeekly_sys_lunch'] === currentWeek) completedGoals++;
+
+        // Check Goal 3: Weekly Reunião de Integração
+        if (storedUser.lastReuniaoWeek === currentWeek || storedUser['lastCustomWeekly_sys_reuniao'] === currentWeek) completedGoals++;
+
+        // Check Goal 4: Monthly Embaixador Digital
+        if (storedUser.lastLinkedInMonth === currentMonth || storedUser['lastCustomMonthly_sys_embaixador'] === currentMonth) completedGoals++;
+
+        // Check Goal 5: Monthly Viva Engage
+        if (storedUser.lastVivaEngageMonth === currentMonth || storedUser['lastCustomMonthly_sys_vivaengage'] === currentMonth) completedGoals++;
+
+        // Check Goal 6: Weekly Tarde dos Jogos
+        if (storedUser.lastGamesWeek === currentWeek || storedUser['lastCustomWeekly_sys_jogos'] === currentWeek) completedGoals++;
+
+        const percentage = (completedGoals / totalGoals) * 100;
+
+        if (metaText) metaText.textContent = `Metas: ${completedGoals} de ${totalGoals} completadas`;
+        if (metaPercent) metaPercent.textContent = `${Math.floor(percentage)}%`;
+        if (metaStatus) {
+            if (percentage === 0) metaStatus.textContent = 'Status: Iniciando';
+            else if (percentage < 50) metaStatus.textContent = 'Status: Em progresso';
+            else if (percentage < 100) metaStatus.textContent = 'Status: Muito bom';
+            else metaStatus.textContent = 'Status: Excelente';
+        }
+
+        // Animate Circle
+        if (circle) {
+            const radius = circle.r.baseVal.value;
+            const circumference = radius * 2 * Math.PI;
+            circle.style.strokeDasharray = `${circumference} ${circumference}`;
+            const offset = circumference - (percentage / 100 * circumference);
+            
+            setTimeout(() => {
+                circle.style.strokeDashoffset = offset;
+            }, 500);
+        }
+
+    };
+
+    updateUIWithUser();
+
+    // Achievement Management
+    const updateAchievements = () => {
+        const achCards = document.querySelectorAll('.achievement-card');
+        const visits = storedUser.streak || storedUser.visitCount || 1;
+        
+        // Frequency (10 dias totais)
+        if (visits >= 10) unlockAch(achCards[1]);
+        // Centenário (100 dias totais)
+        if (visits >= 100) unlockAch(achCards[2]);
+
+        // Amigo da Galera (24 almoços)
+        if ((storedUser.lunchCount || 0) >= 24) unlockAch(achCards[4]);
+
+        // Porta Voz (10 LinkedIn)
+        if ((storedUser.linkedInCount || 0) >= 10) unlockAch(achCards[5]);
+    };
+
+    function unlockAch(card) {
+        if (card && card.classList.contains('locked')) {
+            card.classList.remove('locked');
+            card.classList.add('unlocked');
+            card.querySelector('.lock-overlay')?.remove();
+            
+            // Add a "Unlocked" badge if it doesn't have a date yet
+            if (!card.querySelector('.date-unlocked')) {
+                const info = card.querySelector('.achievement-info');
+                const badge = document.createElement('span');
+                badge.className = 'date-unlocked';
+                badge.textContent = 'Conquistado!';
+                info.appendChild(badge);
+            }
+        }
+    }
+
+    // Update Ranking with All Users (excluding admin)
+    const updateRanking = () => {
+        const rankingContainer = document.querySelector('.ranking-list');
+        if (!rankingContainer) return;
+
+        // Get all users from global list
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        
+        // Filter out admin and sort by points
+        const sortedUsers = allUsers
+            .filter(u => u.email !== 'admin@mouraleite.com.br')
+            .sort((a, b) => b.points - a.points);
+
+        if (sortedUsers.length === 0) {
+            rankingContainer.innerHTML = '<p style="padding:1rem; color:#999; text-align:center;">Nenhum usuário no ranking.</p>';
+            return;
+        }
+
+        rankingContainer.innerHTML = sortedUsers.slice(0, 7).map((user, index) => {
+            const isMe = user.email === storedUser.email;
+            const rankClass = index === 0 ? 'first' : (isMe ? 'me' : '');
+            
+            return `
+                <div class="rank-item ${rankClass}">
+                    <span class="pos">${index + 1}</span>
+                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.username)}&background=${index === 0 ? 'F1863B' : '006837'}&color=fff" alt="">
+                    <span class="name">${isMe ? 'Você' : user.username}</span>
+                    <span class="pts" style="display:flex; align-items:center; gap:4px;">
+                        ${user.points.toLocaleString()} 
+                        <svg viewBox="0 0 100 100" width="16" height="16" style="filter: drop-shadow(0 1px 1px rgba(0,0,0,0.2));">
+                            <circle cx="68" cy="30" r="28" fill="#F1863B" />
+                            <ellipse cx="38" cy="38" rx="16" ry="14" fill="#2E7D32" />
+                            <ellipse cx="55" cy="32" rx="14" ry="13" fill="#388E3C" />
+                            <ellipse cx="68" cy="38" rx="15" ry="13" fill="#2E7D32" />
+                            <ellipse cx="50" cy="28" rx="13" ry="12" fill="#43A047" />
+                            <ellipse cx="42" cy="44" rx="12" ry="10" fill="#388E3C" />
+                            <ellipse cx="62" cy="44" rx="12" ry="10" fill="#2E7D32" />
+                            <ellipse cx="52" cy="22" rx="10" ry="9" fill="#4CAF50" />
+                            <path d="M 46 50 L 42 78 C 42 80 44 82 50 82 C 56 82 58 80 58 78 L 54 50 Z" fill="#1B5E20" />
+                            <line x1="22" y1="82" x2="78" y2="82" stroke="#1B5E20" stroke-width="3" stroke-linecap="round" />
+                        </svg>
+                    </span>
+                </div>
+            `;
+        }).join('');
+    };
+
+    updateRanking();
+
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (confirm('Deseja realmente sair?')) {
+                localStorage.removeItem('moura_leite_user');
+                window.location.href = 'login.html';
+            }
+        });
+    }
+
+    // Modal Toggle for Ranks
+    const btnVerNiveis = document.getElementById('btn-ver-niveis');
+    const modalRanks = document.getElementById('ranks-modal');
+    const btnCloseRanks = document.getElementById('close-ranks');
+
+    if (btnVerNiveis) {
+        btnVerNiveis.addEventListener('click', () => {
+            modalRanks.classList.remove('hidden');
+        });
+    }
+
+    if (btnCloseRanks) {
+        btnCloseRanks.addEventListener('click', () => {
+            modalRanks.classList.add('hidden');
+        });
+    }
+
+    // Edit User Modal Logic
+    const modalEditUser = document.getElementById('edit-user-modal');
+    const btnCloseEditUser = document.getElementById('close-edit-user');
+    const editUserForm = document.getElementById('edit-user-form');
+
+    if (btnCloseEditUser) {
+        btnCloseEditUser.addEventListener('click', () => {
+            modalEditUser.classList.add('hidden');
+        });
+    }
+
+    if (editUserForm) {
+        editUserForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('edit-user-email').value;
+            const username = document.getElementById('edit-user-name').value;
+            const points = parseInt(document.getElementById('edit-user-points').value) || 0;
+            const dept = document.getElementById('edit-user-dept').value;
+            const diretoria = document.getElementById('edit-user-dir').value;
+
+            let updates = { username, points, dept, diretoria };
+            
+            try {
+                // Fetch current user data to check for point changes
+                const userDoc = await db.collection("users").doc(email).get();
+                const userData = userDoc.data() || {};
+                const oldPoints = parseInt(userData.points) || 0;
+
+                // Log transaction if points were adjusted
+                if (points !== oldPoints) {
+                    const diff = points - oldPoints;
+                    const serverTimestamp = getServerTime();
+                    const tx = {
+                        user: username,
+                        item: `Ajuste Administrativo (${diff >= 0 ? '+' : ''}${diff} ML Coins)`,
+                        date: new Date(serverTimestamp).toLocaleDateString('pt-BR'),
+                        time: new Date(serverTimestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                        status: 'Concluído',
+                        serverTime: serverTimestamp
+                    };
+                    if (!updates.history) updates.history = userData.history || [];
+                    updates.history.unshift(tx);
+                }
+
+                await db.collection("users").doc(email).update(updates);
+                console.log(`Usuário ${email} atualizado com sucesso no Firestore.`);
+                
+                // Update local session if editing self
+                if (email === storedUser.email) {
+                    userPoints = points; 
+                    Object.assign(storedUser, updates);
+                    localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+                    updatePointsDisplay();
+                    updateUIWithUser();
+                }
+
+                // Force update UI
+                if (typeof renderAdminUsers === 'function') renderAdminUsers();
+                if (typeof updateRanking === 'function') updateRanking();
+                if (typeof renderHistory === 'function') renderHistory();
+
+                alert('Usuário atualizado com sucesso!');
+                modalEditUser.classList.add('hidden');
+            } catch (err) {
+                console.error("Erro ao editar usuário:", err);
+                alert("Erro ao salvar alterações.");
+            }
+        });
+    }
+
+    window.addEventListener('click', (e) => {
+        if (e.target === modalRanks) {
+            modalRanks.classList.add('hidden');
+        }
+        if (e.target === modalEditUser) {
+            modalEditUser.classList.add('hidden');
+        }
+    });
+
+
+
+    // Register mission form listener (after all functions are defined)
+    registerMissionFormListener();
+    setTimeout(registerMissionFormListener, 100);
+
+    // Seed defaults
+    seedDefaultMissions();
+
+    // Subscribe to shared missions so all users see created missions
+    subscribeSharedMissions();
+
+    // Navigation handling
+    const navItems = document.querySelectorAll('.nav-item');
+    const sections = document.querySelectorAll('.page-section');
+
+    window.showPage = function(pageId) {
+        // Hide all sections
+        sections.forEach(sec => sec.classList.add('hidden'));
+        
+        // Show target section
+        const targetSection = document.getElementById(`${pageId}-page`);
+        if (targetSection) {
+            targetSection.classList.remove('hidden');
+            targetSection.classList.add('content-fade');
+            
+            // Special rendering for specific pages
+            if (pageId === 'admin-users') renderAdminUsers();
+            if (pageId === 'admin-missions') renderAdminMissions();
+            if (pageId === 'missoes') renderCustomMissions();
+            if (pageId === 'historico') renderHistory();
+            if (pageId === 'conquistas') updateAchievements();
+            if (pageId === 'ranking') renderFullRanking();
+        }
+
+        // Update active nav item
+        navItems.forEach(item => {
+            item.classList.remove('active');
+            if (item.getAttribute('data-page') === pageId) {
+                item.classList.add('active');
+            }
+        });
+
+        console.log(`Navigating to ${pageId}`);
+    };
+
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const page = item.getAttribute('data-page');
+            showPage(page);
+        });
+    });
+
+    // Store Logic
+    window.buyItem = function(itemName, price, prizeId) {
+        if (prizeId) {
+            const allPrizes = getPrizeData();
+            const prize = allPrizes.find(p => p.id === prizeId);
+            if (prize && prize.cooldownDays > 0) {
+                const lastBought = storedUser['lastBoughtPrize_' + prizeId];
+                if (lastBought) {
+                    const now = typeof getServerTime === 'function' ? getServerTime() : Date.now();
+                    const diffMs = now - lastBought;
+                    const cooldownMs = prize.cooldownDays * 24 * 60 * 60 * 1000;
+                    if (diffMs < cooldownMs) {
+                        alert('Este prêmio ainda está no período de espera (cooldown) e não pode ser resgatado agora.');
+                        return;
+                    }
+                }
+            }
+        }
+
+        if (userPoints >= price) {
+            const confirmPurchase = confirm(`Deseja trocar ${price} ML Coins por 1x ${itemName}?`);
+            if (confirmPurchase) {
+                const now = new Date(getServerTime());
+                userPoints -= price;
+                updatePointsDisplay();
+
+                const newTransaction = {
+                    user: storedUser.username,
+                    item: `${itemName} (-${price} ML Coins)`,
+                    date: now.toLocaleDateString('pt-BR'),
+                    time: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                    status: 'Concluído',
+                    serverTime: getServerTime()
+                };
+
+                if (!storedUser.history) storedUser.history = [];
+                storedUser.history.unshift(newTransaction);
+
+                // Global history is obsolete, removed to save quota
+
+                storedUser.points = userPoints;
+                try {
+                    localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+                } catch(e) {}
+
+                const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+                const userIndex = allUsers.findIndex(u => u.email === storedUser.email);
+                if (userIndex !== -1) {
+                    allUsers[userIndex].points = userPoints;
+                    allUsers[userIndex].history = storedUser.history;
+                    try {
+                        localStorage.setItem('moura_leite_all_users', JSON.stringify(allUsers));
+                    } catch(e) {}
+                }
+
+                // Decrement prize stock and set cooldown if prizeId is provided
+                if (prizeId) {
+                    storedUser['lastBoughtPrize_' + prizeId] = getServerTime();
+
+                    // 1. Use getPrizeData() as single source of truth (returns sharedPrizeCache if Firestore is available,
+                    //    otherwise falls back to localStorage). This prevents the bug where a prize added via the admin
+                    //    panel is in Firestore/sharedPrizeCache but NOT in localStorage, causing pIdx === -1 and silently
+                    //    skipping the stock decrement.
+                    const allPrizes = getPrizeData();
+                    const prize = allPrizes.find(p => p.id === prizeId);
+                    if (prize) {
+                        const currentQty = (prize.quantity === undefined || prize.quantity === null) ? -1 : parseInt(prize.quantity);
+                        if (currentQty > 0) {
+                            const newQty = currentQty - 1;
+
+                            // Update in-memory sharedPrizeCache immediately (optimistic UI)
+                            const cIdx = sharedPrizeCache.findIndex(p => p.id === prizeId);
+                            if (cIdx !== -1) sharedPrizeCache[cIdx].quantity = newQty;
+
+                            // Also update localStorage to keep it in sync
+                            try {
+                                const localPrizes = JSON.parse(localStorage.getItem('moura_leite_prizes')) || [];
+                                const lIdx = localPrizes.findIndex(p => p.id === prizeId);
+                                if (lIdx !== -1) {
+                                    localPrizes[lIdx].quantity = newQty;
+                                } else {
+                                    // Prize was not in localStorage yet — add it from cache
+                                    const cacheCopy = { ...prize, quantity: newQty };
+                                    localPrizes.push(cacheCopy);
+                                }
+                                localStorage.setItem('moura_leite_prizes', JSON.stringify(localPrizes));
+                            } catch(e) { console.warn('Não foi possível atualizar localStorage de prêmios:', e); }
+
+                            // 2. Firestore: use runTransaction for atomic decrement (prevents race conditions)
+                            if (dbAvailable && prizesCollection) {
+                                const prizeDocRef = prizesCollection.doc(prizeId);
+                                db.runTransaction(async (transaction) => {
+                                    const snap = await transaction.get(prizeDocRef);
+                                    if (!snap.exists) return;
+                                    const serverQty = (snap.data().quantity === undefined || snap.data().quantity === null) ? -1 : parseInt(snap.data().quantity);
+                                    if (serverQty > 0) {
+                                        transaction.update(prizeDocRef, { quantity: serverQty - 1 });
+                                    }
+                                }).catch(e => console.warn('Erro na transação de estoque:', e));
+                            }
+                        }
+                    } else {
+                        // Prize not found in any source — still attempt atomic Firestore decrement as fallback
+                        console.warn(`[buyItem] Prêmio '${prizeId}' não encontrado no cache local. Tentando decrementar via Firestore diretamente.`);
+                        if (dbAvailable && prizesCollection) {
+                            const prizeDocRef = prizesCollection.doc(prizeId);
+                            db.runTransaction(async (transaction) => {
+                                const snap = await transaction.get(prizeDocRef);
+                                if (!snap.exists) return;
+                                const serverQty = (snap.data().quantity === undefined || snap.data().quantity === null) ? -1 : parseInt(snap.data().quantity);
+                                if (serverQty > 0) {
+                                    transaction.update(prizeDocRef, { quantity: serverQty - 1 });
+                                }
+                            }).catch(e => console.warn('Erro na transação de estoque (fallback):', e));
+                        }
+                    }
+                    renderCustomPrizes();
+                }
+
+                // Sync to Firestore
+                saveAndSync();
+
+                updateRanking();
+                updateUIWithUser();
+                addNotification(`Você resgatou: ${itemName}. Retire no RH!`);
+                alert(`Sucesso! Você adquiriu: ${itemName}. Retire seu item no RH.`);
+            }
+        } else {
+            alert(`ML Coins insuficientes! Você precisa de mais ${price - userPoints} ML Coins para este item.`);
+        }
+    };
+
+    // ── Boost de Pontos 2x ─────────────────────────────────────────────────────
+    // Uses Firebase server timestamp as single source of truth to prevent cheating.
+
+    const initBoostUI = () => {
+        const btn = document.getElementById('boost-btn');
+        if (!btn) return;
+
+        const serverNow = new Date(getServerTime());
+        const boostMonth = (serverNow.getMonth() + 1) + '-' + serverNow.getFullYear();
+
+        // Check if boost was already bought this month (stored in Firestore)
+        if (storedUser.lastBoostMonth === boostMonth) {
+            btn.disabled = true;
+            btn.textContent = 'Usado ✓';
+            return;
+        }
+
+        // Check if boost is currently active
+        if (storedUser.boostActiveUntil && getServerTime() < storedUser.boostActiveUntil) {
+            btn.disabled = true;
+            const remaining = Math.ceil((storedUser.boostActiveUntil - getServerTime()) / 3600000);
+            btn.textContent = `Ativo (${remaining}h)`;
+        }
+    };
+
+    window.buyBoost = async function() {
+        const price = 50;
+        if (userPoints < price) {
+            alert(`ML Coins insuficientes! Você precisa de mais ${price - userPoints} ML Coins.`);
+            return;
+        }
+
+        // Validate via Firebase server timestamp (anti-cheat)
+        if (!dbAvailable) {
+            alert('É necessário conexão com o servidor para ativar o Boost. Tente novamente.');
+            return;
+        }
+
+        try {
+            // ALWAYS write a fresh server timestamp first, then read it back.
+            // This prevents the "time machine" bug where a stale timestamp freezes dates.
+            await db.collection('_server_time').doc('sync').set({
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            const fresh = await db.collection('_server_time').doc('sync').get();
+            const serverNow = fresh.data().timestamp.toDate();
+
+            const boostMonth = (serverNow.getMonth() + 1) + '-' + serverNow.getFullYear();
+            const userDoc = await db.collection('users').doc(storedUser.email).get();
+            const userData = userDoc.data() || {};
+
+            // Check monthly limit in Firestore (not localStorage, to prevent manipulation)
+            if (userData.lastBoostMonth === boostMonth) {
+                alert('Você já usou o Boost este mês. Disponível novamente no próximo mês.');
+                const btn = document.getElementById('boost-btn');
+                if (btn) { btn.disabled = true; btn.textContent = 'Usado ✓'; }
+                return;
+            }
+
+            const confirmed = confirm(`Deseja ativar o Boost 2x por ${price} ML Coins?\nSeus ML Coins em missões serão dobrados por 24 horas.`);
+            if (!confirmed) return;
+
+            // Calculate boost expiry: 24h from server time
+            const boostUntilTs = serverNow.getTime() + 86400000; // +24h
+
+            userPoints -= price;
+            storedUser.points = userPoints;
+            storedUser.lastBoostMonth = boostMonth;
+            storedUser.boostActiveUntil = boostUntilTs;
+
+            const now = new Date(serverNow);
+            const transaction = {
+                user: storedUser.username,
+                item: `Boost de Pontos 2x (24h) (-${price} ML Coins)`,
+                date: now.toLocaleDateString('pt-BR'),
+                time: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                status: 'Ativo',
+                serverTime: serverNow.getTime()
+            };
+            if (!storedUser.history) storedUser.history = [];
+            storedUser.history.unshift(transaction);
+
+            try {
+                const globalHistory = JSON.parse(localStorage.getItem('moura_leite_global_history')) || [];
+                globalHistory.unshift(transaction);
+                if (globalHistory.length > 200) globalHistory.length = 200;
+                localStorage.setItem('moura_leite_global_history', JSON.stringify(globalHistory));
+                localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+            } catch(e) {}
+
+            // Persist to Firestore (authoritative record)
+            saveAndSync();
+
+            updatePointsDisplay();
+            updateRanking();
+            updateUIWithUser();
+            initBoostUI();
+            addNotification('🚀 Boost 2x ativado! Suas missões valem o dobro por 24h.');
+            alert('🚀 Boost ativado! Suas missões valem 2x por 24 horas. Bora completar missões!');
+
+        } catch (err) {
+            console.error('Boost error:', err);
+            alert('Erro ao ativar o Boost. Tente novamente.');
+        }
+    };
+
+    // Removed duplicate multiplier logic here
+
+    initBoostUI();
+
+    window.rejectTransaction = async (email, originalIndex) => {
+        const reason = prompt('Deseja realmente recusar este crédito e remover os ML Coins do usuário?\n\nDigite o motivo da recusa (obrigatório):');
+        if (reason === null) return;
+        if (!reason.trim()) {
+            alert('O motivo da recusa é obrigatório.');
+            return;
+        }
+        
+        try {
+            const userDoc = await db.collection("users").doc(email).get();
+            if (!userDoc.exists) return alert("Usuário não encontrado no banco.");
+            
+            const userData = userDoc.data();
+            const history = userData.history || [];
+            
+            if (originalIndex < 0 || originalIndex >= history.length) {
+                return alert("Transação não encontrada no histórico do usuário.");
+            }
+            
+            const tx = history[originalIndex];
+            if (tx.status === 'Recusado') return alert("Esta transação já foi recusada.");
+            
+            // Parse points from item string
+            let pointsToDeduct = 0;
+            const earnedMatch = tx.item.match(/\(\+(\d+)\s+(?:pts|ML Coins|Moura Coins)\)/);
+            if (earnedMatch) {
+                pointsToDeduct = parseInt(earnedMatch[1]);
+            } else {
+                // Try legacy parsing
+                const pointValues = {
+                    'Check-in Diário': 1,
+                    'Almoço Moura Leite': 5,
+                    'Reunião de Integração': 8,
+                    'Embaixador Digital': 15,
+                    'Engajamento Viva Engage': 12,
+                    'Dinâmica de Jogos': 20
+                };
+                for (const [name, val] of Object.entries(pointValues)) {
+                    if (tx.item.includes(name)) {
+                        pointsToDeduct = val;
+                        break;
+                    }
+                }
+                // Custom missions legacy parsing
+                const missions = JSON.parse(localStorage.getItem('moura_leite_missions')) || [];
+                const matchedMission = missions.find(m => tx.item.includes(m.name));
+                if (matchedMission) {
+                    pointsToDeduct = matchedMission.points || 0;
+                }
+            }
+            
+            // Update transaction status
+            history[originalIndex].status = 'Recusado';
+            history[originalIndex].rejectReason = reason.trim();
+            
+            // CLEANUP: Remove base64 images from history before saving to avoid 1MB limit errors
+            const cleanedHistory = history.map(tx => {
+                const cleanedTx = { ...tx };
+                if (cleanedTx.photoData && cleanedTx.photoData.startsWith('data:image')) {
+                    cleanedTx.photoData = '[EVIDENCIA_SALVA]';
+                }
+                return cleanedTx;
+            });
+            
+            // Update points and specific mission counts if applicable
+            const newPoints = Math.max(0, (parseInt(userData.points) || 0) - pointsToDeduct);
+            let updates = {
+                history: cleanedHistory,
+                points: newPoints
+            };
+
+            // Revert achievement counters if the rejected transaction was a specific system mission
+            if (tx.item.includes('Integração entre Times') || tx.item.includes('Almoço Moura Leite')) {
+                updates.lunchCount = Math.max(0, (userData.lunchCount || 0) - 1);
+            }
+            if (tx.item.includes('Reunião de Integração')) {
+                updates.reuniaoCount = Math.max(0, (userData.reuniaoCount || 0) - 1);
+            }
+            if (tx.item.includes('Embaixador Digital')) {
+                updates.linkedInCount = Math.max(0, (userData.linkedInCount || 0) - 1);
+            }
+            if (tx.item.includes('Engajamento Viva Engage')) {
+                updates.vivaEngageCount = Math.max(0, (userData.vivaEngageCount || 0) - 1);
+            }
+            if (tx.item.includes('Dinâmica de Jogos')) {
+                updates.gamesCount = Math.max(0, (userData.gamesCount || 0) - 1);
+            }
+
+            await db.collection("users").doc(email).update(updates);
+            
+            alert(`Transação recusada e ${pointsToDeduct} ML Coins removidos com sucesso!`);
+            
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao recusar transação.");
+        }
+    };
+
+    // ==========================================
+    // ADMIN: Reset Mission Cooldown for a User
+    // ==========================================
+    // Clears the completion flag of a mission for a specific user,
+    // allowing them to complete it again in the same period.
+    // Usage via console: adminResetMission('email@usuario.com', 'sys_lunch')
+    // Common mission IDs: sys_lunch, sys_reuniao, sys_jogos, sys_checkin,
+    //                     sys_embaixador, sys_vivaengage, or any custom mission ID.
+    window.adminResetMission = async (userEmail, missionId) => {
+        if (storedUser.email !== 'admin@mouraleite.com.br') {
+            return alert('Apenas o administrador pode executar esta ação.');
+        }
+        if (!userEmail || !missionId) {
+            return alert('Uso: adminResetMission("email@usuario.com", "idDaMissao")');
+        }
+
+        const frequencyKeyMap = {
+            sys_checkin:     ['lastCheckIn',         'lastCustomDaily_sys_checkin'],
+            sys_lunch:       ['lastLunchWeek',        'lastCustomWeekly_sys_lunch'],
+            sys_reuniao:     ['lastReuniaoWeek',      'lastCustomWeekly_sys_reuniao'],
+            sys_jogos:       ['lastGamesWeek',        'lastCustomWeekly_sys_jogos'],
+            sys_embaixador:  ['lastLinkedInMonth',    'lastCustomMonthly_sys_embaixador'],
+            sys_vivaengage:  ['lastVivaEngageMonth',  'lastCustomMonthly_sys_vivaengage'],
+        };
+
+        // Build the list of fields to clear
+        const fieldsToClear = {};
+        if (frequencyKeyMap[missionId]) {
+            frequencyKeyMap[missionId].forEach(key => { fieldsToClear[key] = null; });
+        } else {
+            // For custom missions, try all frequency variants
+            ['lastCustomDaily_', 'lastCustomWeekly_', 'lastCustomMonthly_', 'lastCustomOnce_'].forEach(prefix => {
+                fieldsToClear[prefix + missionId] = null;
+            });
+        }
+
+        if (!confirm(`Resetar cooldown da missão "${missionId}" para ${userEmail}?`)) return;
+
+        try {
+            if (dbAvailable) {
+                // Use FieldValue.delete() to fully remove the field from Firestore
+                const updates = {};
+                Object.keys(fieldsToClear).forEach(k => {
+                    updates[k] = firebase.firestore.FieldValue.delete();
+                });
+                await db.collection('users').doc(userEmail).update(updates);
+            }
+
+            // Also clear from localStorage for the currently logged-in user (if it's them)
+            const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+            const idx = allUsers.findIndex(u => u.email === userEmail);
+            if (idx !== -1) {
+                Object.keys(fieldsToClear).forEach(k => { delete allUsers[idx][k]; });
+                localStorage.setItem('moura_leite_all_users', JSON.stringify(allUsers));
+            }
+            if (storedUser.email === userEmail) {
+                Object.keys(fieldsToClear).forEach(k => { delete storedUser[k]; });
+                localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+                renderCustomMissions();
+            }
+
+            alert(`✅ Cooldown da missão "${missionId}" resetado para ${userEmail}!\nO usuário já pode completá-la novamente.`);
+        } catch (err) {
+            console.error('Erro ao resetar cooldown:', err);
+            alert('Erro ao resetar cooldown. Veja o console para detalhes.');
+        }
+    };
+
+    // Pagination Variables
+    let currentHistoryPage = 1;
+    const historyItemsPerPage = 50;
+    let fullHistoryData = [];
+
+    // Filter state: 'all' | 'prizes' | 'missions'
+    let historyFilter = 'all';
+    let historyUserFilter = 'all';
+    let historyEvidenceFilter = 'all';
+    
+    // Cache for evidence thumbnails to prevent excessive Firestore reads
+    const evidencePhotoCache = {};
+
+    const _populateHistoryUserFilter = () => {
+        const select = document.getElementById('history-user-filter');
+        const container = select ? select.parentElement : null;
+        if (!select || !container) return;
+
+        const isAdmin = storedUser.email === 'admin@mouraleite.com.br';
+        if (!isAdmin) {
+            container.classList.add('hidden');
+            return;
+        }
+
+        container.classList.remove('hidden');
+
+        // Only populate once
+        if (select.options.length > 1) return;
+
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        const sortedUsers = allUsers
+            .filter(u => u.email !== 'admin@mouraleite.com.br')
+            .sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+
+        sortedUsers.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.email;
+            opt.textContent = `${u.username || 'Sem Nome'} (${u.email})`;
+            select.appendChild(opt);
+        });
+    };
+
+    // Helper: detect if a transaction is a prize redemption
+    const isPrizeRedemption = (tx) => /\(-\d+\s*(?:pts|ML Coins|Moura Coins)\)/i.test(tx.item || '');
+    // Helper: detect if a transaction is a mission completion
+    const isMissionEntry   = (tx) => /\(\+\d+\s*(?:pts|ML Coins|Moura Coins)\)/i.test(tx.item || '');
+
+    // Helper: deduplicate history entries by exact match (including serverTime)
+    const deduplicateHistory = (entries) => {
+        const seen = new Set();
+        return entries.filter(tx => {
+            // Include serverTime (milliseconds) so that two legitimate actions done in the same minute by the user are NOT treated as duplicates.
+            // Only exact bug-clones (with the exact same serverTime or both missing it) will be removed.
+            const key = `${tx.serverTime || ''}_${tx.item || ''}_${tx.user || ''}_${tx.date || ''}_${tx.time || ''}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    };
+
+    // History Rendering
+    const renderHistory = (page = null) => {
+        if (page !== null) currentHistoryPage = page;
+        
+        // Free up localStorage space by deleting the obsolete global history
+        try { localStorage.removeItem('moura_leite_global_history'); } catch(e) {}
+        
+        const historyBody = document.querySelector('#historico-page .history-table tbody');
+        const historyHeader = document.querySelector('#historico-page .history-table thead tr');
+        const isAdmin = storedUser.email === 'admin@mouraleite.com.br';
+        
+        fullHistoryData = [];
+
+        _populateHistoryUserFilter();
+
+        if (isAdmin) {
+            // Admin: force fetch from server to ensure fresh data
+            if (dbAvailable) {
+                db.collection('users').get({ source: 'server' }).then(snapshot => {
+                    const allTx = [];
+                    snapshot.forEach(doc => {
+                        const u = doc.data();
+                        if (u.history && Array.isArray(u.history)) {
+                            u.history.forEach((tx, i) => {
+                                allTx.push({ ...tx, user: tx.user || u.username, email: u.email, originalIndex: i });
+                            });
+                        }
+                    });
+                    // Deduplicate and sort
+                    const deduped = deduplicateHistory(allTx);
+                    deduped.sort((a, b) => (b.serverTime || 0) - (a.serverTime || 0));
+                    fullHistoryData = deduped;
+                    _renderHistoryTable(historyBody, historyHeader, isAdmin);
+                }).catch(err => {
+                    console.warn('Erro ao buscar histórico do Firestore, usando localStorage:', err);
+                    _loadHistoryFromLocal(isAdmin);
+                    _renderHistoryTable(historyBody, historyHeader, isAdmin);
+                });
+                return; // will render async
+            } else {
+                _loadHistoryFromLocal(isAdmin);
+            }
+        } else {
+            // Regular user: read from in-memory storedUser to avoid localStorage quota freeze bugs
+            const rawHistory = storedUser.history || [];
+            fullHistoryData = deduplicateHistory(rawHistory);
+        }
+        
+        _renderHistoryTable(historyBody, historyHeader, isAdmin);
+    };
+
+    const _loadHistoryFromLocal = (isAdmin) => {
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        const allTx = [];
+        allUsers.forEach(u => {
+            if (u.history && Array.isArray(u.history)) {
+                u.history.forEach((tx, i) => {
+                    allTx.push({ ...tx, user: tx.user || u.username, email: u.email, originalIndex: i });
+                });
+            }
+        });
+        const deduped = deduplicateHistory(allTx);
+        deduped.sort((a, b) => (b.serverTime || 0) - (a.serverTime || 0));
+        fullHistoryData = deduped;
+    };
+
+    const _renderHistoryTable = (historyBody, historyHeader, isAdmin) => {
+        if (!historyBody || !historyHeader) return;
+
+        // Apply active filter
+        let filteredData = fullHistoryData;
+        if (historyFilter === 'prizes') {
+            filteredData = fullHistoryData.filter(isPrizeRedemption);
+        } else if (historyFilter === 'missions') {
+            filteredData = fullHistoryData.filter(isMissionEntry);
+        }
+        if (historyUserFilter !== 'all') {
+            filteredData = filteredData.filter(tx => tx.email === historyUserFilter);
+        }
+        if (historyEvidenceFilter === 'with_photo') {
+            filteredData = filteredData.filter(tx => tx.evidenceId || tx.photo || tx.hasPhoto);
+        } else if (historyEvidenceFilter === 'without_photo') {
+            filteredData = filteredData.filter(tx => !(tx.evidenceId || tx.photo || tx.hasPhoto));
+        }
+
+        // Update Header
+        if (isAdmin) {
+            historyHeader.innerHTML = `
+                <th>Usuário</th>
+                <th>Item</th>
+                <th>Evidência</th>
+                <th>Data</th>
+                <th>Horário</th>
+                <th>Status</th>
+                <th>Ações</th>
+            `;
+        } else {
+            historyHeader.innerHTML = `
+                <th>Item</th>
+                <th>Data</th>
+                <th>Horário</th>
+                <th>Status</th>
+            `;
+        }
+
+        const paginationContainer = document.getElementById('history-pagination');
+
+        if (filteredData.length === 0) {
+            const colCount = isAdmin ? 6 : 4;
+            const emptyMsg = historyFilter === 'prizes'
+                ? 'Nenhum resgate de prêmio encontrado.'
+                : historyFilter === 'missions'
+                    ? 'Nenhuma missão encontrada no histórico.'
+                    : 'Nenhum registro encontrado ainda.';
+            historyBody.innerHTML = `<tr><td colspan="${colCount}" style="text-align: center; padding: 2rem; color: #999;">${emptyMsg}</td></tr>`;
+            if (paginationContainer) paginationContainer.classList.add('hidden');
+            return;
+        }
+
+        // Pagination Logic
+        const totalPages = Math.ceil(filteredData.length / historyItemsPerPage);
+        if (currentHistoryPage > totalPages) currentHistoryPage = totalPages;
+        if (currentHistoryPage < 1) currentHistoryPage = 1;
+
+        const startIndex = (currentHistoryPage - 1) * historyItemsPerPage;
+        const endIndex = startIndex + historyItemsPerPage;
+        const pageData = filteredData.slice(startIndex, endIndex);
+
+        // Build user points map for tooltips
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        const userPointsMap = {};
+        allUsers.forEach(u => {
+            userPointsMap[u.email] = u.points || 0;
+        });
+
+        historyBody.innerHTML = pageData.map(tx => `
+            <tr>
+                ${isAdmin ? `<td style="cursor:help;" title="Saldo Atual: ${userPointsMap[tx.email] !== undefined ? userPointsMap[tx.email] : '?'} ML Coins"><strong>${tx.user}</strong></td>` : ''}
+                <td>${(tx.item || '').replace(/pts|Moura Coins/gi, 'ML Coins')}</td>
+                ${isAdmin ? `
+                    <td style="text-align:center;">
+                        ${tx.evidenceId
+                            ? `<div class="evidence-thumb-container" data-evidence-id="${tx.evidenceId}" onclick="viewPhoto(null, '${tx.evidenceId}')" style="width:40px; height:40px; background:#eee; border-radius:4px; margin:0 auto; cursor:pointer; display:flex; align-items:center; justify-content:center; overflow:hidden; border: 1px solid #ccc; box-shadow: 0 1px 3px rgba(0,0,0,0.1);" title="Ver Comprovante"><i class="fa-solid fa-spinner fa-spin" style="color:#aaa; font-size:12px;"></i></div>`
+                            : (tx.photo && tx.photo !== '[EVIDENCIA_SALVA]'
+                                ? `<img src="${tx.photo}" onclick="viewPhoto('${tx.photo}')" style="width:40px; height:40px; object-fit:cover; border-radius:4px; cursor:pointer; border: 1px solid #ccc; display:block; margin: 0 auto; box-shadow: 0 1px 3px rgba(0,0,0,0.1);" title="Ver Comprovante">`
+                                : (tx.hasPhoto && !tx.evidenceId
+                                    ? `<span title="⚠️ Falha no upload: a foto foi enviada pelo colaborador, mas não chegou ao servidor (provável falha de rede no momento do envio). Solicite que o colaborador reenvie a evidência." style="cursor:help; display:inline-block; background:#fff3e0; border:1px solid #ff9800; border-radius:4px; padding:2px 6px; font-size:10px; color:#e65100; font-weight:600;">⚠️ Falha upload</span>`
+                                    : ''))}
+                        ${tx.link ? `<a href="${tx.link}" target="_blank" class="view-link-btn" title="Ver Publicação" style="text-decoration:none; margin-left:5px;">🔗</a>` : ''}
+                        ${(!tx.photo && !tx.evidenceId && !tx.link && !tx.hasPhoto) ? '<span style="color:#ccc">-</span>' : ''}
+                    </td>
+                ` : ''}
+                <td>${tx.date}</td>
+                <td>${tx.time}</td>
+                <td>
+                    <span class="status-badge">${tx.status}</span>
+                    ${tx.rejectReason ? `<div style="font-size: 11px; color: #ff5252; margin-top: 4px; line-height: 1.2;">Motivo: ${tx.rejectReason}</div>` : ''}
+                </td>
+                ${isAdmin ? `
+                    <td style="text-align:center;">
+                        ${(tx.status === 'Concluído' || tx.status === 'Validando') ? 
+                        `<button class="btn-buy" style="background:#d32f2f; padding:4px 8px; font-size:10px; border-radius:4px; color:#fff; border:none; cursor:pointer;" onclick="rejectTransaction('${tx.email}', ${tx.originalIndex})">Recusar</button>` 
+                        : '<span style="color:#ccc">-</span>'}
+                    </td>
+                ` : ''}
+            </tr>
+        `).join('');
+
+        // Fetch thumbnails asynchronously for admin view
+        if (isAdmin && dbAvailable) {
+            const thumbContainers = historyBody.querySelectorAll('.evidence-thumb-container');
+            thumbContainers.forEach(async (container) => {
+                const evidenceId = container.dataset.evidenceId;
+                if (!evidenceId) return;
+                
+                if (evidencePhotoCache[evidenceId]) {
+                    container.innerHTML = `<img src="${evidencePhotoCache[evidenceId]}" style="width:100%; height:100%; object-fit:cover;">`;
+                    return;
+                }
+                
+                try {
+                    const doc = await db.collection('mission_evidence').doc(evidenceId).get();
+                    if (doc.exists && doc.data().photo) {
+                        evidencePhotoCache[evidenceId] = doc.data().photo;
+                        container.innerHTML = `<img src="${doc.data().photo}" style="width:100%; height:100%; object-fit:cover;">`;
+                    } else {
+                        container.innerHTML = `<i class="fa-solid fa-image-slash" style="color:#aaa;" title="Foto indisponível"></i>`;
+                    }
+                } catch (e) {
+                    console.warn('Erro ao carregar thumbnail:', e);
+                    container.innerHTML = `<i class="fa-solid fa-image-slash" style="color:#aaa;" title="Erro ao carregar"></i>`;
+                }
+            });
+        }
+
+        // Update Pagination UI
+        if (paginationContainer) {
+            if (totalPages > 1) {
+                paginationContainer.classList.remove('hidden');
+                
+                const prevBtn = document.getElementById('history-prev');
+                const nextBtn = document.getElementById('history-next');
+                const pageInfo = document.getElementById('history-page-info');
+                
+                if (pageInfo) pageInfo.textContent = `Página ${currentHistoryPage} de ${totalPages}`;
+                
+                if (prevBtn) {
+                    prevBtn.disabled = currentHistoryPage === 1;
+                    prevBtn.onclick = () => {
+                        renderHistory(currentHistoryPage - 1);
+                        document.getElementById('historico-page').scrollIntoView({ behavior: 'smooth' });
+                    };
+                }
+                
+                if (nextBtn) {
+                    nextBtn.disabled = currentHistoryPage === totalPages;
+                    nextBtn.onclick = () => {
+                        renderHistory(currentHistoryPage + 1);
+                        document.getElementById('historico-page').scrollIntoView({ behavior: 'smooth' });
+                    };
+                }
+            } else {
+                paginationContainer.classList.add('hidden');
+            }
+        }
+    };
+
+    // Make it available globally if needed for click handlers
+    window.renderHistory = renderHistory;
+
+    // ── History Filter Button Listeners ────────────────────────────────────
+    const historyFilterBar = document.getElementById('history-filter-bar');
+    if (historyFilterBar) {
+        historyFilterBar.addEventListener('click', (e) => {
+            const btn = e.target.closest('.history-filter-btn');
+            if (!btn) return;
+            const newFilter = btn.dataset.filter;
+            if (newFilter === historyFilter) return; // already active
+
+            historyFilter = newFilter;
+            currentHistoryPage = 1; // reset to first page on filter change
+
+            // Update active state on buttons
+            historyFilterBar.querySelectorAll('.history-filter-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.filter === historyFilter);
+            });
+
+            // Re-render table with new filter (fullHistoryData already loaded)
+            const historyBody   = document.querySelector('#historico-page .history-table tbody');
+            const historyHeader = document.querySelector('#historico-page .history-table thead tr');
+            const isAdminLocal  = storedUser.email === 'admin@mouraleite.com.br';
+            _renderHistoryTable(historyBody, historyHeader, isAdminLocal);
+        });
+    }
+
+    const historyUserFilterSelect = document.getElementById('history-user-filter');
+    if (historyUserFilterSelect) {
+        historyUserFilterSelect.addEventListener('change', (e) => {
+            historyUserFilter = e.target.value;
+            currentHistoryPage = 1;
+            const historyBody = document.querySelector('#historico-page .history-table tbody');
+            const historyHeader = document.querySelector('#historico-page .history-table thead tr');
+            const isAdminLocal = storedUser.email === 'admin@mouraleite.com.br';
+            _renderHistoryTable(historyBody, historyHeader, isAdminLocal);
+        });
+    }
+
+    const historyEvidenceFilterSelect = document.getElementById('history-evidence-filter');
+    if (historyEvidenceFilterSelect) {
+        historyEvidenceFilterSelect.addEventListener('change', (e) => {
+            historyEvidenceFilter = e.target.value;
+            currentHistoryPage = 1;
+            const historyBody = document.querySelector('#historico-page .history-table tbody');
+            const historyHeader = document.querySelector('#historico-page .history-table thead tr');
+            const isAdminLocal = storedUser.email === 'admin@mouraleite.com.br';
+            _renderHistoryTable(historyBody, historyHeader, isAdminLocal);
+        });
+    }
+
+    // Admin Tool: Clean duplicate history entries in Firestore for all users
+    window.cleanDuplicateHistory = async () => {
+        if (!dbAvailable) { alert('Firebase não disponível.'); return; }
+        const confirmed = confirm('Isso vai percorrer TODOS os usuários no Firebase e remover entradas duplicadas do histórico.\n\nDeseja continuar?');
+        if (!confirmed) return;
+
+        try {
+            const snapshot = await db.collection('users').get();
+            let totalCleaned = 0;
+            const batch = db.batch();
+
+            snapshot.forEach(doc => {
+                const u = doc.data();
+                if (!u.history || !Array.isArray(u.history)) return;
+
+                const seen = new Set();
+                const cleanHistory = u.history.filter(tx => {
+                    // Same key as renderHistory deduplication (including serverTime)
+                    const key = `${tx.serverTime || ''}_${tx.item || ''}_${tx.user || ''}_${tx.date || ''}_${tx.time || ''}`;
+                    if (seen.has(key)) { totalCleaned++; return false; }
+                    seen.add(key);
+                    // Also strip any leftover base64 photos
+                    if (tx.photo && typeof tx.photo === 'string' && tx.photo.length > 500) {
+                        tx.photo = '[EVIDENCIA_SALVA]';
+                        tx.hasPhoto = true;
+                    }
+                    return true;
+                });
+
+                if (cleanHistory.length !== u.history.length) {
+                    batch.update(doc.ref, { history: cleanHistory });
+                }
+            });
+
+            await batch.commit();
+            alert(`✅ Limpeza concluída!\n${totalCleaned} entradas duplicadas foram removidas do Firestore.\n\nRecarregue a página para ver o histórico atualizado.`);
+        } catch (err) {
+            console.error('Erro ao limpar duplicatas:', err);
+            alert('Erro ao limpar duplicatas. Veja o console para detalhes.');
+        }
+    };
+
+    // Admin Tool: Fix missing 'email' field inside Firestore user documents.
+    // Root cause: documents saved without the 'email' field can't be matched by
+    // the onSnapshot find(u => u.email === storedUser.email), breaking point sync.
+    window.fixMissingEmailFields = async () => {
+        if (!dbAvailable) { alert('Firebase não disponível.'); return; }
+        const confirmed = confirm('Esta ferramenta vai varrer todos os usuários no Firebase e adicionar o campo "email" nos documentos onde ele está faltando.\n\nIsso corrige a dessincronização de pontos causada por esse campo ausente.\n\nDeseja continuar?');
+        if (!confirmed) return;
+
+        try {
+            const snapshot = await db.collection('users').get();
+            const batch = db.batch();
+            let fixedCount = 0;
+
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (!data.email) {
+                    // The document ID is the user's email — write it back into the document
+                    batch.update(doc.ref, { email: doc.id });
+                    fixedCount++;
+                    console.log(`🔧 Corrigindo campo email ausente para: ${doc.id}`);
+                }
+            });
+
+            if (fixedCount === 0) {
+                alert('✅ Nenhum documento com campo email ausente foi encontrado. Tudo está correto!');
+                return;
+            }
+
+            await batch.commit();
+            alert(`✅ Correção concluída!\n${fixedCount} documento(s) tiveram o campo "email" adicionado.\n\nRecarregue a página para ver as atualizações.`);
+        } catch (err) {
+            console.error('Erro ao corrigir campos email:', err);
+            alert('Erro ao corrigir campos email. Veja o console para detalhes.');
+        }
+    };
+
+    // Admin Tool: Reconcile points for all users based on their history
+    window.reconcileAllUsersPoints = async () => {
+        if (!dbAvailable) { alert('Firebase não disponível.'); return; }
+        const confirmed = confirm('Isso vai recalcular e corrigir os ML Coins de TODOS os colaboradores com base no histórico de transações.\n\nDeseja continuar?');
+        if (!confirmed) return;
+
+        // Known points for old entries that didn't have (+X pts) in the string
+        const KNOWN_MISSION_POINTS = {
+            'Check-in Diário': 1,
+            'Integração entre Times': 5,
+            'Café de Integração': 5,
+            'Almoço Moura Leite': 5,
+            'Reunião de Integração': 8,
+            'Embaixador Digital': 15,
+            'Engajamento Viva Engage': 12,
+            'Dinâmica de Jogos': 20
+        };
+        const KNOWN_ITEMS = {
+            'Caneca': -450,
+            'Caderno': -300,
+            'Garrafa': -650,
+            'Boné': -300,
+            'Óculos de Sol': -450,
+            'Boost de Pontos 2x': -50
+        };
+
+        try {
+            // Fetch custom mission points first
+            const missionsSnap = await db.collection("custom_missions").get();
+            const customMissionPoints = {};
+            missionsSnap.forEach(doc => {
+                const m = doc.data();
+                customMissionPoints[m.name] = m.points;
+            });
+
+            const snapshot = await db.collection('users').get();
+            const batch = db.batch();
+            let usersUpdated = 0;
+
+            snapshot.forEach(doc => {
+                const u = doc.data();
+                if (u.email === 'admin@mouraleite.com.br') return;
+                if (!u.history || !Array.isArray(u.history)) return;
+
+                // Sum points from history
+                let calculatedPoints = 0;
+                u.history.forEach(tx => {
+                    if (tx.status === 'Recusado' || tx.status === 'Cancelado') return;
+                    
+                    const itemText = tx.item || '';
+                    const match = itemText.match(/\(([+-]?\d+)\s*(?:pts?|ML Coins|Moura Coins)\)/i);
+                    
+                    if (match) {
+                        calculatedPoints += parseInt(match[1]);
+                    } else {
+                        // Fallback for old history formats
+                        if (itemText.startsWith('Missão:')) {
+                            const missionPart = itemText.replace('Missão: ', '').trim();
+                            let found = false;
+                            for (const [name, pts] of Object.entries(KNOWN_MISSION_POINTS)) {
+                                if (missionPart.includes(name)) { calculatedPoints += pts; found = true; break; }
+                            }
+                            if (!found) {
+                                for (const [name, pts] of Object.entries(customMissionPoints)) {
+                                    if (missionPart.includes(name)) { calculatedPoints += parseInt(pts); break; }
+                                }
+                            }
+                        } else {
+                            for (const [name, pts] of Object.entries(KNOWN_ITEMS)) {
+                                if (itemText.includes(name)) { calculatedPoints += pts; break; }
+                            }
+                        }
+                    }
+                });
+
+                if (calculatedPoints !== (u.points || 0)) {
+                    batch.update(doc.ref, { points: Math.max(0, calculatedPoints) });
+                    usersUpdated++;
+                }
+            });
+
+            await batch.commit();
+            alert(`✅ Recálculo concluído!\n${usersUpdated} colaboradores tiveram os ML Coins corrigidos.\n\nRecarregue a página para ver as atualizações.`);
+        } catch (err) {
+            console.error('Erro ao recalcular pontos:', err);
+            alert('Erro ao recalcular ML Coins. Veja o console para detalhes.');
+        }
+    };
+
+
+    const renderFullRanking = () => {
+        const fullRankingBody = document.getElementById('full-ranking-body');
+        if (!fullRankingBody) return;
+
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        const sortedUsers = allUsers
+            .filter(u => u.email !== 'admin@mouraleite.com.br')
+            .sort((a, b) => b.points - a.points);
+
+        fullRankingBody.innerHTML = sortedUsers.map((user, index) => {
+            const deptDisplay = user.dept ? (user.dept.length <= 3 ? user.dept.toUpperCase() : user.dept.charAt(0).toUpperCase() + user.dept.slice(1)) : 'Geral';
+            const dirRaw = user.diretoria ? user.diretoria.replace(/^diretoria-/i, '') : '';
+            const dirDisplay = dirRaw ? (dirRaw.charAt(0).toUpperCase() + dirRaw.slice(1)) : 'Moura Leite';
+            
+            return `
+                <tr>
+                    <td><strong>${index + 1}º</strong></td>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.username)}&background=006837&color=fff" style="width:30px; border-radius:50%;">
+                            <span>${user.username}</span>
+                        </div>
+                    </td>
+                    <td>${deptDisplay}</td>
+                    <td>${dirDisplay}</td>
+                    <td><strong>${user.points.toLocaleString()} ML Coins</strong></td>
+                </tr>
+            `;
+        }).join('');
+    };
+
+    function updatePointsDisplay() {
+        if (pointsElement) {
+            pointsElement.innerHTML = userPoints.toLocaleString();
+        }
+    }
+
+    // Notifications Logic
+    const renderNotifications = () => {
+        const notifList = document.getElementById('notif-list');
+        const notifBadge = document.getElementById('notif-badge');
+        const notifications = storedUser.notifications || [];
+        
+        if (!notifList || !notifBadge) return;
+
+        notifBadge.textContent = notifications.length;
+        notifBadge.style.display = notifications.length > 0 ? 'flex' : 'none';
+
+        if (notifications.length === 0) {
+            notifList.innerHTML = '<p style="padding:1rem; font-size:0.8rem; color:#999; text-align:center;">Nenhuma notificação nova.</p>';
+            return;
+        }
+
+        notifList.innerHTML = notifications.map(n => `
+            <div class="notif-item">
+                <p>${n.text}</p>
+                <span>${n.time}</span>
+            </div>
+        `).join('');
+    };
+
+    const addNotification = (text) => {
+        if (!storedUser.notifications) storedUser.notifications = [];
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        
+        storedUser.notifications.unshift({ text, time: timeStr });
+        localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+        renderNotifications();
+    };
+
+    // Initial Notification for new users
+    if (!storedUser.notifications || storedUser.notifications.length === 0) {
+        addNotification(`Bem-vindo ao portal, ${storedUser.username}! Comece completando suas missões.`);
+    }
+
+    // Toggle Dropdown
+    const notifBtn = document.getElementById('notification-btn');
+    const notifDropdown = document.getElementById('notif-dropdown');
+    if (notifBtn) {
+        notifBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            notifDropdown.classList.toggle('hidden');
+        });
+    }
+
+    document.addEventListener('click', () => {
+        if (notifDropdown) notifDropdown.classList.add('hidden');
+    });
+
+    if (notifDropdown) {
+        notifDropdown.addEventListener('click', (e) => e.stopPropagation());
+    }
+
+    const clearNotifsBtn = document.getElementById('clear-notifs');
+    if (clearNotifsBtn) {
+        clearNotifsBtn.addEventListener('click', () => {
+            storedUser.notifications = [];
+            localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+            renderNotifications();
+        });
+    }
+
+    renderNotifications();
+
+    // ── Anti-fraud: Per-user duplicate photo detection ─────────────────────
+    // Computes a SHA-256 hash of the compressed image data so we can detect
+    // if the SAME user tries to re-upload a photo they already submitted.
+    // Different users CAN submit the same photo (group photos).
+    const computeImageHash = async (dataUrl) => {
+        try {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(dataUrl);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (e) {
+            console.warn('Erro ao calcular hash da imagem (fallback):', e);
+            let hash = 0;
+            for (let i = 0; i < Math.min(dataUrl.length, 50000); i++) {
+                const char = dataUrl.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash |= 0;
+            }
+            return 'fb_' + Math.abs(hash).toString(36);
+        }
+    };
+
+    const checkDuplicatePhoto = async (photoHash) => {
+        if (!dbAvailable || !photoHash) return false;
+        try {
+            const snapshot = await db.collection('mission_evidence')
+                .where('userEmail', '==', storedUser.email)
+                .where('photoHash', '==', photoHash)
+                .limit(1)
+                .get();
+            return !snapshot.empty;
+        } catch (e) {
+            console.warn('Erro ao verificar foto duplicada (permitindo envio):', e);
+            return false;
+        }
+    };
+
+    // Save evidence (photo/link) to separate Firestore collection to avoid 1MB doc limit
+    const saveEvidence = async (evidenceData) => {
+        if (!dbAvailable) return null;
+
+        const MAX_RETRIES = 3;
+        const RETRY_DELAY_MS = 2000;
+        const evidenceId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 6);
+        const payload = {
+            id: evidenceId,
+            userEmail: storedUser.email,
+            userName: storedUser.username,
+            photo: evidenceData.photo || null,
+            photoHash: evidenceData.photoHash || null,
+            link: evidenceData.link || null,
+            missionName: evidenceData.missionName || '',
+            createdAt: new Date().toISOString(),
+            serverTime: firebase.firestore.FieldValue.serverTimestamp()
+        };
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                await db.collection('mission_evidence').doc(evidenceId).set(payload);
+                console.log(`Evidência salva (tentativa ${attempt}):`, evidenceId);
+                return evidenceId;
+            } catch (e) {
+                console.warn(`Tentativa ${attempt}/${MAX_RETRIES} de salvar evidência falhou:`, e.message);
+                if (attempt < MAX_RETRIES) {
+                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+                } else {
+                    console.error('Erro crítico: todas as tentativas de salvar evidência falharam.', e);
+                }
+            }
+        }
+        return null;
+    };
+
+    const saveAndSync = async () => {
+        try {
+            // Ensure points are synced as numbers
+            storedUser.points = parseInt(userPoints) || 0;
+            
+            try {
+                localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+            } catch(e) {
+                console.warn("Could not save moura_leite_user locally (quota):", e);
+            }
+            
+            // Update global list locally for immediate feedback
+            try {
+                const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+                const userIndex = allUsers.findIndex(u => u.email === storedUser.email);
+                if (userIndex !== -1) {
+                    allUsers[userIndex].points = userPoints;
+                    allUsers[userIndex].history = storedUser.history;
+                    localStorage.setItem('moura_leite_all_users', JSON.stringify(allUsers));
+                }
+            } catch(e) {
+                console.warn("Could not save moura_leite_all_users locally (quota):", e);
+            }
+            
+            // Sync to Firestore if available
+            if (dbAvailable && storedUser.email) {
+                // CRITICAL FIX: Strip base64 photo data from history before sending to Firestore
+                // Firestore has a 1MB document limit. Base64 photos can be 1-5MB each.
+                // Without this, all writes fail silently after 1-2 photo uploads.
+                const cleanUser = JSON.parse(JSON.stringify(storedUser));
+                // SYNC FIX: Always ensure the 'email' field is present in the Firestore document.
+                // Without it, the onSnapshot find(u => u.email === storedUser.email) will never
+                // match this user, breaking real-time point synchronization entirely.
+                cleanUser.email = storedUser.email;
+                if (cleanUser.history && Array.isArray(cleanUser.history)) {
+                    cleanUser.history = cleanUser.history.map(tx => {
+                        const cleanTx = { ...tx };
+                        if (cleanTx.photo && cleanTx.photo.startsWith('data:')) {
+                            cleanTx.hasPhoto = true;
+                            delete cleanTx.photo; // Remove base64 data
+                        }
+                        return cleanTx;
+                    });
+                }
+                // Also strip notifications to reduce document size
+                delete cleanUser.notifications;
+                
+                await db.collection('users').doc(storedUser.email).set(cleanUser, { merge: true });
+                console.log('Sincronização com Firestore concluída.');
+            }
+        } catch (error) {
+            console.error('Erro em saveAndSync:', error);
+        }
+    };
+
+    const checkinBtns = document.querySelectorAll('#checkin-btn, #checkin-btn-full');
+    const checkinStatus = document.getElementById('checkin-status');
+
+    const updateCheckinUI = () => {
+        if (storedUser.lastCheckIn === todayStr) {
+            checkinBtns.forEach(btn => {
+                btn.disabled = true;
+                btn.textContent = 'Concluído';
+            });
+            if (checkinStatus) checkinStatus.textContent = 'Você já garantiu seu ponto de hoje!';
+        }
+    };
+
+    checkinBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (storedUser.lastCheckIn !== todayStr) {
+                const multiplier = getCurrentMultiplier();
+                const earned = Math.floor(1 * multiplier);
+                userPoints += earned;
+                storedUser.points = userPoints;
+                storedUser.lastCheckIn = todayStr;
+                // Keep custom mission key in sync
+                storedUser['lastCustomDaily_sys_checkin'] = todayStr;
+                
+                // Add transaction to history
+                const serverTimestamp = getServerTime();
+                const transaction = {
+                    user: storedUser.username,
+                    item: `Missão: Check-in Diário (+${earned} ML Coins)`,
+                    date: new Date(serverTimestamp).toLocaleDateString('pt-BR'),
+                    time: new Date(serverTimestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                    status: 'Concluído',
+                    serverTime: serverTimestamp
+                };
+
+                if (!storedUser.history) storedUser.history = [];
+                storedUser.history.unshift(transaction);
+
+                try {
+                    const globalHistory = JSON.parse(localStorage.getItem('moura_leite_global_history')) || [];
+                    globalHistory.unshift(transaction);
+                    if (globalHistory.length > 200) globalHistory.length = 200;
+                    localStorage.setItem('moura_leite_global_history', JSON.stringify(globalHistory));
+                } catch(e) {}
+
+                saveAndSync();
+                updatePointsDisplay();
+                updateRanking();
+                updateUIWithUser();
+                updateCheckinUI();
+                // IMPORTANT: Fire confetti BEFORE alert, because alert() blocks the JS thread
+                triggerCelebration();
+                addNotification(`Check-in diário realizado! +${earned} ML Coins.`);
+                setTimeout(() => {
+                    alert(`Parabéns! Você ganhou ${earned} ML Coins pelo seu check-in diário.`);
+                }, 300);
+            }
+        });
+    });
+
+    const triggerCelebration = () => {
+        if (typeof confetti === 'function') {
+            confetti({
+                particleCount: 150,
+                spread: 70,
+                origin: { y: 0.6 },
+                colors: ['#006837', '#F1863B', '#1976d2', '#f57c00']
+            });
+        }
+    };
+
+    const logSocialActivity = async (action, icon) => {
+        if (!dbAvailable) return;
+        try {
+            // ── Dedup guard (server-side) ─────────────────────────────────────────
+            // Before writing, check if this exact user+action already has an entry
+            // in the last 24 hours. This prevents duplicate mural posts when the
+            // user logs in from multiple devices/tabs or reloads the page before
+            // the rank is flushed to localStorage.
+            const DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+            const cutoffTime = new Date(Date.now() - DEDUP_WINDOW_MS);
+
+            const existingSnapshot = await db.collection('social_feed')
+                .where('user', '==', storedUser.username)
+                .get();
+
+            let isDuplicate = false;
+            existingSnapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.action === action) {
+                    const ts = data.timestamp ? (data.timestamp.toDate ? data.timestamp.toDate().getTime() : new Date(data.timestamp).getTime()) : 0;
+                    if (ts >= cutoffTime.getTime()) {
+                        isDuplicate = true;
+                    }
+                }
+            });
+
+            if (isDuplicate) {
+                console.log(`[SocialFeed] Entrada duplicada bloqueada para "${storedUser.username}" → "${action}"`);
+                return; // already recorded within the last 24h, skip
+            }
+
+            db.collection('social_feed').add({
+                user: storedUser.username,
+                action: action,
+                icon: icon || 'fa-star',
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            });
+        } catch (e) {
+            console.error('Erro no social feed:', e);
+        }
+    };
+
+    // Custom Missions Handler
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('custom-mission-btn')) {
+            const missionId = e.target.getAttribute('data-mission-id');
+            const missionName = e.target.getAttribute('data-mission-name');
+            const missionPoints = parseInt(e.target.getAttribute('data-mission-points'));
+            const validationType = e.target.getAttribute('data-validation-type');
+            const frequency = e.target.getAttribute('data-frequency');
+
+            // Get the last completion key based on frequency
+            const lastKey = frequency === 'daily' ? 'lastCustomDaily_' + missionId
+                          : frequency === 'weekly' ? 'lastCustomWeekly_' + missionId
+                          : frequency === 'monthly' ? 'lastCustomMonthly_' + missionId
+                          : 'lastCustomOnce_' + missionId;
+            
+            const dateKey = frequency === 'daily' ? todayStr
+                         : frequency === 'weekly' ? currentWeek
+                         : frequency === 'monthly' ? currentMonth
+                         : 'completed';
+
+            const isCompleted = storedUser[lastKey] === dateKey || 
+                                (missionId === 'sys_checkin' && storedUser.lastCheckIn === todayStr) ||
+                                (missionId === 'sys_lunch' && storedUser.lastLunchWeek === currentWeek) ||
+                                (missionId === 'sys_reuniao' && storedUser.lastReuniaoWeek === currentWeek) ||
+                                (missionId === 'sys_embaixador' && storedUser.lastLinkedInMonth === currentMonth) ||
+                                (missionId === 'sys_vivaengage' && storedUser.lastVivaEngageMonth === currentMonth) ||
+                                (missionId === 'sys_jogos' && storedUser.lastGamesWeek === currentWeek);
+
+            if (isCompleted) {
+                logMissionAttempt(storedUser.email, missionId, missionName, false, getServerTime());
+                alert('Você já completou esta missão neste período.');
+                return;
+            }
+
+            if (validationType === 'photo') {
+                const photoInput = document.createElement('input');
+                photoInput.type = 'file';
+                photoInput.accept = 'image/*';
+                photoInput.style.display = 'none'; // Importante para não aparecer na tela
+                document.body.appendChild(photoInput); // Fix: iOS Safari exige que o input esteja no DOM para o click funcionar
+
+                // Comprime a imagem para garantir que caiba no Firestore (limite ~1MB por campo)
+                const compressImage = (dataUrl, maxPx = 1280, quality = 0.75) => new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        let { width, height } = img;
+                        // Redimensiona mantendo proporção
+                        if (width > maxPx || height > maxPx) {
+                            if (width > height) { height = Math.round(height * maxPx / width); width = maxPx; }
+                            else { width = Math.round(width * maxPx / height); height = maxPx; }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', quality));
+                    };
+                    img.onerror = () => resolve(dataUrl); // fallback: usa original se falhar
+                    img.src = dataUrl;
+                });
+
+                photoInput.onchange = () => {
+                    const file = photoInput.files[0];
+                    if (file) {
+                        // Aviso para arquivos muito grandes (>15MB) antes de processar
+                        if (file.size > 15 * 1024 * 1024) {
+                            if(document.body.contains(photoInput)) document.body.removeChild(photoInput);
+                            alert('⚠️ Arquivo muito grande (máx. 15 MB). Por favor, escolha uma foto menor ou tire uma nova foto com menor resolução.');
+                            return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = async () => {
+                            try {
+                                // Comprime antes de enviar — evita falha por tamanho no Firestore
+                                const compressed = await compressImage(reader.result);
+                                console.log(`Foto comprimida: ${Math.round(reader.result.length/1024)}KB → ${Math.round(compressed.length/1024)}KB`);
+                                completeMissionWithPhoto(missionId, missionName, missionPoints, compressed, lastKey, dateKey);
+                            } catch(compressErr) {
+                                console.warn('Compressão falhou, enviando original:', compressErr);
+                                completeMissionWithPhoto(missionId, missionName, missionPoints, reader.result, lastKey, dateKey);
+                            }
+                            if(document.body.contains(photoInput)) document.body.removeChild(photoInput);
+                        };
+                        reader.readAsDataURL(file);
+                    } else {
+                        if(document.body.contains(photoInput)) document.body.removeChild(photoInput);
+                    }
+                };
+                photoInput.click();
+            } else if (validationType === 'link') {
+                const link = prompt(`Cole o link da ${missionName}:`);
+                if (link && link.trim()) {
+                    completeMissionWithLink(missionId, missionName, missionPoints, link, lastKey, dateKey);
+                }
+            } else if (validationType === 'praise') {
+                openPraiseModal(missionId, missionName, missionPoints, lastKey, dateKey);
+            } else {
+                completeMissionSimple(missionId, missionName, missionPoints, lastKey, dateKey);
+            }
+        }
+    });
+
+    const completeMissionSimple = (missionId, missionName, missionPoints, lastKey, dateKey) => {
+        const multiplier = getCurrentMultiplier();
+        const earned = Math.floor(missionPoints * multiplier);
+        const serverTimestamp = getServerTime();
+        
+        userPoints += earned;
+        storedUser.points = userPoints;
+        storedUser[lastKey] = dateKey;
+        
+        // Ensure system keys are updated if mission is a system mission
+        if (missionId === 'sys_checkin') storedUser.lastCheckIn = todayStr;
+        if (missionId === 'sys_lunch') {
+            storedUser.lastLunchWeek = currentWeek;
+            storedUser.lunchCount = (storedUser.lunchCount || 0) + 1;
+        }
+        if (missionId === 'sys_reuniao') {
+            storedUser.lastReuniaoWeek = currentWeek;
+            storedUser.reuniaoCount = (storedUser.reuniaoCount || 0) + 1;
+        }
+        if (missionId === 'sys_embaixador') {
+            storedUser.lastLinkedInMonth = currentMonth;
+            storedUser.linkedInCount = (storedUser.linkedInCount || 0) + 1;
+        }
+        if (missionId === 'sys_vivaengage') {
+            storedUser.lastVivaEngageMonth = currentMonth;
+            storedUser.vivaEngageCount = (storedUser.vivaEngageCount || 0) + 1;
+        }
+        if (missionId === 'sys_jogos') {
+            storedUser.lastGamesWeek = currentWeek;
+            storedUser.gamesCount = (storedUser.gamesCount || 0) + 1;
+        }
+        
+        const transaction = {
+            user: storedUser.username,
+            item: `Missão: ${missionName} (+${earned} ML Coins)`,
+            date: new Date(serverTimestamp).toLocaleDateString('pt-BR'),
+            time: new Date(serverTimestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            status: 'Concluído',
+            serverTime: serverTimestamp
+        };
+
+        if (!storedUser.history) storedUser.history = [];
+        storedUser.history.unshift(transaction);
+        
+        // Global Sync is obsolete, handled by Firestore
+        saveAndSync();
+        
+        // Log successful mission
+        logMissionAttempt(storedUser.email, missionId, missionName, true, serverTimestamp);
+        
+        updatePointsDisplay();
+        updateRanking();
+        updateUIWithUser();
+        renderCustomMissions();
+        // IMPORTANT: Fire confetti BEFORE alert, because alert() blocks the JS thread
+        triggerCelebration();
+        addNotification(`${missionName} concluída! +${earned} ML Coins.`);
+        setTimeout(() => {
+            alert(`Parabéns! Você ganhou ${earned} ML Coins por completar: ${missionName}`);
+        }, 300);
+    };
+
+    const completeMissionWithPhoto = async (missionId, missionName, missionPoints, photoData, lastKey, dateKey) => {
+        const multiplier = getCurrentMultiplier();
+        const earned = Math.floor(missionPoints * multiplier);
+        const serverTimestamp = getServerTime();
+
+        // Anti-fraud: compute hash and check for duplicate photos (per-user only)
+        let photoHash = null;
+        try {
+            photoHash = await computeImageHash(photoData);
+            const isDuplicate = await checkDuplicatePhoto(photoHash);
+            if (isDuplicate) {
+                alert('⚠️ Esta foto já foi enviada anteriormente por você em outra missão.\n\nPor favor, tire uma nova foto para comprovar esta missão.');
+                return;
+            }
+        } catch (hashErr) {
+            console.warn('Verificação anti-fraude falhou, prosseguindo com o envio:', hashErr);
+        }
+
+        try {
+            userPoints += earned;
+            storedUser.points = userPoints;
+            storedUser[lastKey] = dateKey;
+            storedUser.lastMissionTime = serverTimestamp;
+
+            // Ensure system keys are updated if mission is a system mission
+            if (missionId === 'sys_lunch') {
+                storedUser.lastLunchWeek = currentWeek;
+                storedUser.lunchCount = (storedUser.lunchCount || 0) + 1;
+            }
+            if (missionId === 'sys_reuniao') {
+                storedUser.lastReuniaoWeek = currentWeek;
+                storedUser.reuniaoCount = (storedUser.reuniaoCount || 0) + 1;
+            }
+            if (missionId === 'sys_jogos') {
+                storedUser.lastGamesWeek = currentWeek;
+                storedUser.gamesCount = (storedUser.gamesCount || 0) + 1;
+            }
+
+            // Save photo evidence to separate Firestore collection (avoids 1MB doc limit)
+            const evidenceId = await saveEvidence({ photo: photoData, missionName: missionName, photoHash: photoHash });
+
+            const transaction = {
+                user: storedUser.username,
+                item: `Missão: ${missionName} (+${earned} ML Coins)`,
+                date: new Date(serverTimestamp).toLocaleDateString('pt-BR'),
+                time: new Date(serverTimestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                status: 'Validando',
+                photo: '[EVIDENCIA_SALVA]',
+                evidenceId: evidenceId || null,
+                hasPhoto: true,
+                serverTime: serverTimestamp
+            };
+
+            if (!storedUser.history) storedUser.history = [];
+            storedUser.history.unshift(transaction);
+
+            // CRITICAL: Clean any legacy base64 photos from history before saving to localStorage.
+            // Old entries (before the fix) may still contain raw base64 strings, causing a silent
+            // QuotaExceededError that aborts the entire function: no points, no history, no alert.
+            storedUser.history = storedUser.history.map(tx => {
+                if (tx.photo && typeof tx.photo === 'string' && tx.photo.startsWith('data:')) {
+                    return { ...tx, photo: '[EVIDENCIA_SALVA]', hasPhoto: true };
+                }
+                return tx;
+            });
+
+            try {
+                const globalHistory = JSON.parse(localStorage.getItem('moura_leite_global_history')) || [];
+                globalHistory.unshift(transaction);
+                if (globalHistory.length > 200) globalHistory.length = 200;
+                localStorage.setItem('moura_leite_global_history', JSON.stringify(globalHistory));
+                localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+            } catch (storageErr) {
+                // localStorage quota exceeded — not fatal. Firestore sync below will persist data.
+                console.warn('localStorage cheio, usando apenas Firestore:', storageErr);
+            }
+
+            // Always sync to Firestore regardless of localStorage outcome
+            saveAndSync();
+
+            // Log successful mission
+            logMissionAttempt(storedUser.email, missionId, missionName, true, serverTimestamp);
+
+            updatePointsDisplay();
+            updateRanking();
+            updateUIWithUser();
+            renderCustomMissions();
+
+            // Fire confetti BEFORE alert (alert blocks the JS render thread)
+            triggerCelebration();
+            addNotification(`${missionName} enviada para validação! +${earned} ML Coins.`);
+            setTimeout(() => {
+                alert(`Foto enviada! Você ganhou ${earned} ML Coins por: ${missionName}`);
+            }, 300);
+
+        } catch (fatalErr) {
+            // Rollback points to prevent phantom points with no matching history entry
+            userPoints -= earned;
+            storedUser.points = userPoints;
+            storedUser[lastKey] = null;
+            console.error('ERRO CRÍTICO em completeMissionWithPhoto:', fatalErr);
+            alert('Ocorreu um erro ao registrar sua missão. Tente novamente. Se o problema persistir, avise o administrador.');
+        }
+    };
+
+    const completeMissionWithLink = (missionId, missionName, missionPoints, link, lastKey, dateKey) => {
+        const multiplier = getCurrentMultiplier();
+        const earned = Math.floor(missionPoints * multiplier);
+        const serverTimestamp = getServerTime();
+        
+        userPoints += earned;
+        storedUser.points = userPoints;
+        storedUser[lastKey] = dateKey;
+        storedUser.lastMissionTime = serverTimestamp;
+
+        // Ensure system keys are updated if mission is a system mission
+        if (missionId === 'sys_embaixador') {
+            storedUser.lastLinkedInMonth = currentMonth;
+            storedUser.linkedInCount = (storedUser.linkedInCount || 0) + 1;
+        }
+        if (missionId === 'sys_vivaengage') {
+            storedUser.lastVivaEngageMonth = currentMonth;
+            storedUser.vivaEngageCount = (storedUser.vivaEngageCount || 0) + 1;
+        }
+        
+        const transaction = {
+            user: storedUser.username,
+            item: `Missão: ${missionName} (+${earned} ML Coins)`,
+            date: new Date(serverTimestamp).toLocaleDateString('pt-BR'),
+            time: new Date(serverTimestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            status: 'Validando',
+            link: link,
+            serverTime: serverTimestamp
+        };
+
+        if (!storedUser.history) storedUser.history = [];
+        storedUser.history.unshift(transaction);
+        
+        // Global Sync
+        try {
+            const globalHistory = JSON.parse(localStorage.getItem('moura_leite_global_history')) || [];
+            globalHistory.unshift(transaction);
+            if (globalHistory.length > 200) globalHistory.length = 200;
+            localStorage.setItem('moura_leite_global_history', JSON.stringify(globalHistory));
+            
+            localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+        } catch(e) {}
+        saveAndSync();
+        
+        // Sync with global list (redundant if saveAndSync works but kept for safety)
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        const userIndex = allUsers.findIndex(u => u.email === storedUser.email);
+        if (userIndex !== -1) {
+            allUsers[userIndex].points = userPoints;
+            allUsers[userIndex].history = storedUser.history;
+            try {
+                localStorage.setItem('moura_leite_all_users', JSON.stringify(allUsers));
+            } catch(e) {}
+        }
+        
+        // Log successful mission
+        logMissionAttempt(storedUser.email, missionId, missionName, true, serverTimestamp);
+        
+        updatePointsDisplay();
+        updateRanking();
+        updateUIWithUser();
+        renderCustomMissions();
+        // IMPORTANT: Fire confetti BEFORE alert, because alert() blocks the JS thread
+        triggerCelebration();
+        addNotification(`${missionName} enviada para validação! +${earned} ML Coins.`);
+        setTimeout(() => {
+            alert(`Link enviado! Você ganhou ${earned} ML Coins por: ${missionName}`);
+        }, 300);
+    };
+
+    window.viewPhoto = async (photoData, evidenceId = null) => {
+        // Create viewer modal
+        const viewer = document.createElement('div');
+        viewer.id = 'photo-viewer-modal';
+        viewer.style = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer;';
+        
+        const img = document.createElement('img');
+        img.style = 'max-width:95%; max-height:85%; border-radius:12px; border: 4px solid white; box-shadow: 0 0 30px rgba(0,0,0,0.5); object-fit: contain;';
+        
+        const closeBtn = document.createElement('div');
+        closeBtn.innerHTML = '&times;';
+        closeBtn.style = 'position:absolute; top:20px; right:30px; color:white; font-size:40px; font-weight:bold; cursor:pointer;';
+        
+        const tip = document.createElement('p');
+        tip.textContent = 'Carregando foto...';
+        tip.style = 'color:#aaa; margin-top:15px; font-size:14px;';
+
+        viewer.appendChild(closeBtn);
+        viewer.appendChild(img);
+        viewer.appendChild(tip);
+        
+        viewer.onclick = () => viewer.remove();
+        document.body.appendChild(viewer);
+
+        let finalSrc = photoData;
+
+        // Fetch from Firestore if evidenceId is present
+        if (evidenceId && dbAvailable) {
+            try {
+                const doc = await db.collection('mission_evidence').doc(evidenceId).get();
+                if (doc.exists && doc.data().photo) {
+                    finalSrc = doc.data().photo;
+                } else {
+                    tip.textContent = 'Erro: Foto não encontrada no servidor.';
+                    return;
+                }
+            } catch (err) {
+                console.error('Erro ao carregar evidência:', err);
+                tip.textContent = 'Erro ao carregar foto do servidor.';
+                return;
+            }
+        } else if (!photoData || photoData === '[EVIDENCIA_SALVA]') {
+            tip.textContent = 'Foto não disponível: o upload original falhou ou o ID foi perdido. Peça ao colaborador que reenvie a evidência.';
+            img.style.display = 'none';
+            return;
+        }
+
+        img.src = finalSrc;
+        tip.textContent = 'Clique em qualquer lugar para fechar';
+    };
+
+    const startCountdown = () => {
+        setInterval(() => {
+            const badges = document.querySelectorAll('.quest-hot-badge');
+            badges.forEach(badge => {
+                const expiresAt = parseInt(badge.getAttribute('data-expires'));
+                const diff = expiresAt - Date.now();
+                
+                if (diff <= 0) {
+                    badge.innerHTML = '<span>Expirada</span>';
+                    badge.style.background = '#ccc';
+                    badge.style.border = '1px solid #999';
+                    
+                    // Disable the corresponding mission button
+                    const card = badge.closest('.quest-card');
+                    if (card) {
+                        const btn = card.querySelector('.custom-mission-btn');
+                        if (btn && !btn.disabled) {
+                            btn.disabled = true;
+                            btn.innerText = 'Expirada';
+                            btn.style.background = '#e0e0e0';
+                            btn.style.color = '#999';
+                        }
+                    }
+                    return;
+                }
+
+                const hours = Math.floor(diff / 3600000);
+                const minutes = Math.floor((diff % 3600000) / 60000);
+                const seconds = Math.floor((diff % 60000) / 1000);
+                
+                let timeStr = "";
+                if (hours > 0) timeStr += `${hours}h `;
+                if (minutes > 0 || hours > 0) timeStr += `${minutes}m `;
+                timeStr += `${seconds}s`;
+                
+                const span = badge.querySelector('span');
+                if (span) span.innerText = timeStr;
+            });
+        }, 1000);
+    };
+
+    updateCheckinUI();
+    updatePointsDisplay();
+    updateRanking();
+    updateUIWithUser();
+
+    // ── Mural de Conquistas — Real-time Social Feed ────────────────────────────
+    // Reads from Firestore 'social_feed' collection and renders live in the dashboard.
+    // Level-up events get special gold highlight and rank badge styling.
+    if (dbAvailable) {
+        const rankColors = {
+            'Bronze':   { bg: '#cd7f32', light: '#fdf3e7', icon: 'fa-medal' },
+            'Prata':    { bg: '#9e9e9e', light: '#f5f5f5', icon: 'fa-award' },
+            'Ouro':     { bg: '#f9a825', light: '#fffde7', icon: 'fa-trophy' },
+            'Platina':  { bg: '#78909c', light: '#eceff1', icon: 'fa-crown' },
+            'Diamante': { bg: '#29b6f6', light: '#e1f5fe', icon: 'fa-gem'   },
+        };
+
+        const _renderSocialFeed = (docs) => {
+            const feedList = document.getElementById('social-feed-list');
+            if (!feedList) return;
+
+            // Filter: show ONLY level-up events in the Mural de Conquistas
+            const levelUpDocs = docs.filter(doc => {
+                const data = doc.data ? doc.data() : doc;
+                return (data.action || '').includes('atingiu o nível');
+            });
+
+            // DEDUP: keep only the most recent entry per user+action combination.
+            // This prevents visual duplicates from old bugs or race conditions.
+            const seen = new Map(); // key: "user|action" → index of first occurrence
+            const dedupedDocs = levelUpDocs.filter((doc, idx) => {
+                const data = doc.data ? doc.data() : doc;
+                const key = `${data.user}|${data.action}`;
+                if (seen.has(key)) return false; // already seen (earlier = more recent due to desc sort)
+                seen.set(key, idx);
+                return true;
+            });
+
+            if (dedupedDocs.length === 0) {
+                feedList.innerHTML = '<p style="padding:1rem; color:#999; text-align:center; font-size:0.85rem;">Nenhuma subida de nível ainda. Seja o primeiro! 🚀</p>';
+                return;
+            }
+
+            feedList.innerHTML = dedupedDocs.map(doc => {
+                const data = doc.data ? doc.data() : doc;
+                const ts = data.timestamp;
+                let timeLabel = '';
+                if (ts) {
+                    const d = ts.toDate ? ts.toDate() : new Date(ts);
+                    const diff = Date.now() - d.getTime();
+                    if (diff < 60000)        timeLabel = 'agora mesmo';
+                    else if (diff < 3600000) timeLabel = `há ${Math.floor(diff/60000)}min`;
+                    else if (diff < 86400000)timeLabel = `há ${Math.floor(diff/3600000)}h`;
+                    else                     timeLabel = d.toLocaleDateString('pt-BR');
+                }
+
+                const m = (data.action || '').match(/atingiu o nível ([^!]+)!/);
+                const rankName = m ? m[1].trim() : '';
+                const rankStyle = rankColors[rankName] || { bg: '#006837', light: '#e8f5e9', icon: 'fa-trophy' };
+
+                // Shorten display name (first two words max)
+                const displayName = (data.user || 'Colaborador')
+                    .split(' ').slice(0, 2).join(' ');
+
+                return `
+                    <div class="feed-item feed-item--levelup" style="
+                        display:flex; align-items:center; gap:10px;
+                        padding:10px 12px; border-radius:10px; margin-bottom:6px;
+                        background:${rankStyle.light};
+                        border-left:4px solid ${rankStyle.bg};
+                        animation: feedSlideIn 0.4s ease;">
+                        <div style="
+                            width:34px; height:34px; border-radius:50%; flex-shrink:0;
+                            background:${rankStyle.bg}; color:#fff;
+                            display:flex; align-items:center; justify-content:center;
+                            font-size:0.85rem;">
+                            <i class="fa-solid ${rankStyle.icon}"></i>
+                        </div>
+                        <div style="flex:1; min-width:0;">
+                            <p style="margin:0; font-size:0.82rem; color:#333; font-weight:600; line-height:1.3;">
+                                🏆 <strong>${displayName}</strong> ${data.action}
+                            </p>
+                            <span style="font-size:0.72rem; color:#999;">${timeLabel}</span>
+                        </div>
+                    </div>`;
+            }).join('');
+        };
+
+        // Fetch last 50 docs so client-side level-up filter has enough material
+        db.collection('social_feed')
+            .orderBy('timestamp', 'desc')
+            .limit(200)
+            .onSnapshot(snapshot => {
+                const docs = [];
+                snapshot.forEach(doc => docs.push(doc));
+                _renderSocialFeed(docs);
+            }, err => {
+                console.warn('Erro ao carregar Mural de Conquistas:', err);
+            });
+
+        // ── Global Backfill: ensure ALL users who leveled up have mural entries ──
+        // This runs once per page load. It reads ALL users from Firestore, calculates
+        // each user's rank from their spent points, and creates missing social_feed
+        // entries. This fixes the gap where level-ups were detected but the write to
+        // social_feed failed silently (due to the old composite index bug).
+        (async () => {
+            try {
+                // 1. Read ALL existing social_feed entries to know what already exists
+                const feedSnap = await db.collection('social_feed').get();
+                const existingEntries = new Set();
+                feedSnap.forEach(doc => {
+                    const data = doc.data();
+                    if ((data.action || '').includes('atingiu o nível')) {
+                        existingEntries.add(`${data.user}|${data.action}`);
+                    }
+                });
+
+                // 2. Read ALL users and calculate their ranks from spent points
+                const usersSnap = await db.collection('users').get();
+                const entriesToCreate = [];
+
+                usersSnap.forEach(doc => {
+                    const userData = doc.data();
+                    if (!userData.username || userData.disabled) return;
+                    if (userData.email === 'admin@mouraleite.com.br') return;
+
+                    // Calculate spent points from history (same logic as getUserSpentPoints)
+                    const history = userData.history || [];
+                    let spent = 0;
+                    history.forEach(tx => {
+                        if (tx.status === 'Recusado' || tx.status === 'Cancelado') return;
+                        const spentMatch = (tx.item || '').match(/\(-(\d+)\s*(?:pts|ML Coins|Moura Coins)\)/);
+                        if (spentMatch) {
+                            spent += parseInt(spentMatch[1]);
+                        }
+                    });
+
+                    // Determine rank
+                    const userRankObj = ranks.find(r => spent <= r.next) || ranks[ranks.length - 1];
+                    if (userRankObj.name === 'Iniciante') return; // no mural entry needed
+
+                    const action = `atingiu o nível ${userRankObj.name}! 🚀`;
+                    const key = `${userData.username}|${action}`;
+
+                    if (!existingEntries.has(key)) {
+                        entriesToCreate.push({
+                            user: userData.username,
+                            action: action,
+                            icon: userRankObj.icon || 'fa-star',
+                            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        });
+                        existingEntries.add(key); // prevent duplicates within same batch
+                    }
+                });
+
+                // 3. Create missing entries
+                if (entriesToCreate.length > 0) {
+                    console.log(`[Mural Backfill] Criando ${entriesToCreate.length} entrada(s) faltante(s)...`);
+                    for (const entry of entriesToCreate) {
+                        await db.collection('social_feed').add(entry);
+                        console.log(`[Mural Backfill] ✅ ${entry.user} → ${entry.action}`);
+                    }
+                } else {
+                    console.log('[Mural Backfill] Todas as entradas do mural estão atualizadas.');
+                }
+            } catch (backfillErr) {
+                console.warn('[Mural Backfill] Erro ao verificar entradas faltantes:', backfillErr);
+            }
+        })();
+    }
+
+    // Add keyframe for feed items if not already present
+    if (!document.getElementById('feed-keyframes')) {
+        const style = document.createElement('style');
+        style.id = 'feed-keyframes';
+        style.textContent = `
+            @keyframes feedSlideIn {
+                from { opacity: 0; transform: translateX(-10px); }
+                to   { opacity: 1; transform: translateX(0); }
+            }`;
+        document.head.appendChild(style);
+    }
+
+    const openPraiseModal = (missionId, missionName, missionPoints, lastKey, dateKey) => {
+        const modal = document.getElementById('praise-modal');
+        if (!modal) return;
+        
+        document.getElementById('praise-mission-id').value = missionId;
+        document.getElementById('praise-mission-name').value = missionName;
+        document.getElementById('praise-mission-points').value = missionPoints;
+        document.getElementById('praise-last-key').value = lastKey;
+        document.getElementById('praise-date-key').value = dateKey;
+        
+        const userSelect = document.getElementById('praise-user-select');
+        const allUsers = JSON.parse(localStorage.getItem('moura_leite_all_users')) || [];
+        
+        const sortedUsers = allUsers
+            .filter(u => u.email !== 'admin@mouraleite.com.br' && u.email !== storedUser.email && !u.disabled)
+            .sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+            
+        userSelect.innerHTML = '<option value="" disabled selected>Selecione o colega...</option>';
+        sortedUsers.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.email;
+            opt.textContent = `${u.username || 'Sem Nome'} (${u.email})`;
+            opt.dataset.username = u.username;
+            userSelect.appendChild(opt);
+        });
+        
+        document.getElementById('praise-link-input').value = '';
+        modal.classList.remove('hidden');
+    };
+    
+    const praiseForm = document.getElementById('praise-form');
+    if (praiseForm) {
+        praiseForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const missionId = document.getElementById('praise-mission-id').value;
+            const missionName = document.getElementById('praise-mission-name').value;
+            const missionPoints = parseInt(document.getElementById('praise-mission-points').value);
+            const lastKey = document.getElementById('praise-last-key').value;
+            const dateKey = document.getElementById('praise-date-key').value;
+            const userSelect = document.getElementById('praise-user-select');
+            const praisedEmail = userSelect.value;
+            const praisedName = userSelect.options[userSelect.selectedIndex]?.dataset.username || praisedEmail;
+            const link = document.getElementById('praise-link-input').value.trim();
+            
+            if (!praisedEmail || !link) {
+                alert("Preencha todos os campos.");
+                return;
+            }
+
+            if (!link.toLowerCase().includes('engage') && !link.toLowerCase().includes('yammer')) {
+                alert("Por favor, insira um link válido do Viva Engage.");
+                return;
+            }
+            
+            completeMissionWithPraise(missionId, missionName, missionPoints, praisedEmail, praisedName, link, lastKey, dateKey);
+            document.getElementById('praise-modal').classList.add('hidden');
+        });
+    }
+    
+    const closePraiseModalBtn = document.getElementById('close-praise-modal');
+    if (closePraiseModalBtn) closePraiseModalBtn.addEventListener('click', () => document.getElementById('praise-modal').classList.add('hidden'));
+
+    const completeMissionWithPraise = async (missionId, missionName, missionPoints, praisedEmail, praisedName, link, lastKey, dateKey) => {
+        const serverTimestamp = getServerTime();
+        
+        // Quem envia não ganha os pontos, mas registra no histórico
+        storedUser[lastKey] = dateKey;
+        storedUser.lastMissionTime = serverTimestamp;
+        
+        const transaction = {
+            user: storedUser.username,
+            item: `Elogio enviado para: ${praisedName} (Missão: ${missionName}) (+0 ML Coins)`,
+            date: new Date(serverTimestamp).toLocaleDateString('pt-BR'),
+            time: new Date(serverTimestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            status: 'Concluído',
+            link: link,
+            praisedUser: praisedEmail,
+            serverTime: serverTimestamp
+        };
+        
+        if (!storedUser.history) storedUser.history = [];
+        storedUser.history.unshift(transaction);
+        
+        try {
+            const globalHistory = JSON.parse(localStorage.getItem('moura_leite_global_history')) || [];
+            globalHistory.unshift(transaction);
+            if (globalHistory.length > 200) globalHistory.length = 200;
+            localStorage.setItem('moura_leite_global_history', JSON.stringify(globalHistory));
+            localStorage.setItem('moura_leite_user', JSON.stringify(storedUser));
+        } catch(e) {}
+        
+        saveAndSync();
+        logMissionAttempt(storedUser.email, missionId, missionName, true, serverTimestamp);
+        
+        // Dá os pontos para quem recebeu o elogio diretamente no Firebase
+        if (dbAvailable) {
+            try {
+                const praisedRef = db.collection('users').doc(praisedEmail);
+                const praisedDoc = await praisedRef.get();
+                if (praisedDoc.exists) {
+                    const data = praisedDoc.data();
+                    const newPoints = (data.points || 0) + missionPoints;
+                    
+                    const praiseTransaction = {
+                        user: data.username || praisedEmail,
+                        item: `Elogio recebido de: ${storedUser.username} (Missão: ${missionName}) (+${missionPoints} ML Coins)`,
+                        date: new Date(serverTimestamp).toLocaleDateString('pt-BR'),
+                        time: new Date(serverTimestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                        status: 'Concluído',
+                        link: link,
+                        fromUser: storedUser.email,
+                        serverTime: serverTimestamp
+                    };
+                    
+                    const newHistory = [praiseTransaction, ...(data.history || [])];
+                    await praisedRef.update({
+                        points: newPoints,
+                        history: newHistory
+                    });
+                }
+            } catch(e) {
+                console.error("Erro ao dar pontos ao elogiado:", e);
+            }
+        }
+        
+        updateUIWithUser();
+        renderCustomMissions();
+        triggerCelebration();
+        alert(`Elogio enviado com sucesso! ${praisedName} recebeu ${missionPoints} ML Coins!`);
+    };
+
+    startCountdown();
+    
+    // Custom Missions & Prizes Initialization
+    seedDefaultMissions();
+    seedDefaultPrizes();
+    subscribeSharedMissions();
+    registerMissionFormListener();
+    subscribeSharedPrizes();
+    registerPrizeFormListener();
+});
